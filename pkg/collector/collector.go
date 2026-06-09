@@ -19,12 +19,10 @@ import (
 // translates it into a country name.
 //
 //	f(ip) -> CN
-//
 type CountryMapper func(net.IP) (string, error)
 
 // Collector implements the prometheus Collector interface, providing monero
 // metrics whenever a prometheus scrape is received.
-//
 type Collector struct {
 	// client is a Go client that communicated with a `monero` daemon via
 	// plain HTTP(S) RPC.
@@ -42,17 +40,14 @@ type Collector struct {
 }
 
 // ensure that we implement prometheus' collector interface.
-//
 var _ prometheus.Collector = &Collector{}
 
 // Option is a type used by functional arguments to mutate the collector to
 // override default behavior.
-//
 type Option func(c *Collector)
 
 // WithCountryMapper is a functional argument that overrides the default no-op
 // country mapper.
-//
 func WithCountryMapper(v CountryMapper) func(c *Collector) {
 	return func(c *Collector) {
 		c.countryMapper = v
@@ -65,7 +60,6 @@ func defaultCountryMapper(_ net.IP) (string, error) {
 
 // Register registers this collector with the global prometheus collectors
 // registry making it available for an exporter to collect our metrics.
-//
 func Register(client *daemon.Client, opts ...Option) error {
 	defaultLogger, err := zap.NewDevelopment()
 	if err != nil {
@@ -91,12 +85,10 @@ func Register(client *daemon.Client, opts ...Option) error {
 
 // CollectFunc defines a standardized signature for functions that want to
 // expose metrics for collection.
-//
 type CollectFunc func(ctx context.Context, ch chan<- prometheus.Metric) error
 
 // Describe implements the Describe function of the Collector interface.
-//
-func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
+func (c *Collector) Describe(_ chan<- *prometheus.Desc) {
 	// Because we can present the description of the metrics at collection
 	// time, we don't need to write anything to the channel.
 }
@@ -110,7 +102,6 @@ type CustomCollector interface {
 //
 // Here is where all of the calls to a monero rpc endpoint is made, each being
 // wrapped in its own function, all being called concurrently.
-//
 func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 	var g *errgroup.Group
 

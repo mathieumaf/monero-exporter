@@ -147,5 +147,6 @@ func (c *ConnectionsCollector) fetchData(ctx context.Context) error {
 	}
 
 	c.connections = res
+
 	return nil
 }

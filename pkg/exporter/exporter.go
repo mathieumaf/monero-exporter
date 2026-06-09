@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/go-logr/zapr"
@@ -15,12 +16,16 @@ import (
 const (
 	defaultBindAddress   = ":9000"
 	defaultTelemetryPath = "/metrics"
+
+	// readHeaderTimeout bounds how long the metrics server waits for a
+	// client to send its request headers, guarding against slow-loris
+	// style connections.
+	readHeaderTimeout = 10 * time.Second
 )
 
 // Exporter is responsible for bringing up a web server that collects metrics
 // that have been globally registered via prometheus collectors (e.g., see
 // `pkg/collector`).
-//
 type Exporter struct {
 	bindAddress   string
 	telemetryPath string
@@ -36,7 +41,6 @@ type Exporter struct {
 //   - /
 //   - /metrics
 //   - /telemetry
-//
 func WithTelemetryPath(v string) Option {
 	return func(e *Exporter) {
 		e.telemetryPath = v
@@ -49,19 +53,16 @@ func WithTelemetryPath(v string) Option {
 // Examples:
 //   - :8080
 //   - 127.0.0.2:1313
-//
 func WithBindAddress(v string) Option {
 	return func(e *Exporter) {
 		e.bindAddress = v
 	}
 }
 
-// Option allows overriding the exporter's defaults
-//
+// Option allows overriding the exporter's defaults.
 type Option func(e *Exporter)
 
 // New instantiates a new exporter with defaults, unless options are passed.
-//
 func New(opts ...Option) (*Exporter, error) {
 	defaultLogger, err := zap.NewDevelopment()
 	if err != nil {
@@ -85,10 +86,10 @@ func New(opts ...Option) (*Exporter, error) {
 //
 // ps.: this is a BLOCKING method - make sure you either make use of goroutines
 // to not block if needed.
-//
 func (e *Exporter) Run(ctx context.Context) error {
 	var err error
 
+	//nolint:noctx // the listener's lifecycle is bound to Close, not a request context.
 	e.listener, err = net.Listen("tcp", e.bindAddress)
 	if err != nil {
 		return fmt.Errorf("listen on '%s': %w", e.bindAddress, err)
@@ -104,8 +105,15 @@ func (e *Exporter) Run(ctx context.Context) error {
 			"path", e.telemetryPath,
 		).Info("listening")
 
-		http.Handle(e.telemetryPath, promhttp.Handler())
-		if err := http.Serve(e.listener, nil); err != nil {
+		mux := http.NewServeMux()
+		mux.Handle(e.telemetryPath, promhttp.Handler())
+
+		srv := &http.Server{
+			Handler:           mux,
+			ReadHeaderTimeout: readHeaderTimeout,
+		}
+
+		if err := srv.Serve(e.listener); err != nil {
 			doneChan <- fmt.Errorf(
 				"failed listening on address %s: %w",
 				e.bindAddress, err,
@@ -126,7 +134,6 @@ func (e *Exporter) Run(ctx context.Context) error {
 }
 
 // Close gracefully closes the tcp listener associated with it.
-//
 func (e *Exporter) Close() (err error) {
 	if e.listener == nil {
 		return nil

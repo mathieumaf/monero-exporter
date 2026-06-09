@@ -54,6 +54,7 @@ func (c *OverallCollector) fetchData(ctx context.Context) error {
 	return nil
 }
 
+//nolint:funlen // a long but flat sequence of independent metric emissions.
 func (c *OverallCollector) collect() {
 	now := time.Now()
 
@@ -64,6 +65,7 @@ func (c *OverallCollector) collect() {
 			nil, nil,
 		),
 		prometheus.GaugeValue,
+		//nolint:gosec // a unix start-time timestamp comfortably fits in int64.
 		float64(now.
 			Sub(time.Unix(int64(c.info.StartTime), 0)).
 			Seconds()),
