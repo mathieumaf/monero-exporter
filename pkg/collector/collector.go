@@ -10,7 +10,6 @@ import (
 	"github.com/go-logr/zapr"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/cirocosta/go-monero/pkg/rpc/daemon"
 )
@@ -101,14 +100,20 @@ type CustomCollector interface {
 // Collect implements the Collect function of the Collector interface.
 //
 // Here is where all of the calls to a monero rpc endpoint is made, each being
-// wrapped in its own function, all being called concurrently.
+// wrapped in its own function. They run SEQUENTIALLY, on purpose.
+//
+// monerod's RPC digest auth (epee http_auth) hands out a fresh nonce per
+// challenge and keeps only a tiny nonce cache. The digest transport challenges
+// per request (unauth -> 401 -> auth), so firing every collector concurrently
+// makes the daemon evict not-yet-used nonces: the heavier calls (get_connections,
+// get_peer_list, ...) send their authenticated follow-up after their nonce is
+// already gone and come back 401, while the lightest call (get_info) wins the
+// race. The metrics are cheap and the scrape interval is generous, so we collect
+// one call at a time — a single outstanding challenge — which avoids the race
+// entirely. A failing collector only drops its own metrics, never the others'.
 func (c *Collector) Collect(ch chan<- prometheus.Metric) {
-	var g *errgroup.Group
-
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 	defer cancel()
-
-	g, ctx = errgroup.WithContext(ctx)
 
 	for _, collector := range []CustomCollector{
 		NewLastBlockStatsCollector(c.client, ch),
@@ -119,19 +124,8 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		NewNetStatsCollector(c.client, ch),
 		NewOverallCollector(c.client, ch),
 	} {
-		collector := collector
-
-		g.Go(func() error {
-			if err := collector.Collect(ctx); err != nil {
-				return fmt.Errorf("%s collect: %w",
-					collector.Name(), err)
-			}
-
-			return nil
-		})
-	}
-
-	if err := g.Wait(); err != nil {
-		c.log.Error(err, "wait")
+		if err := collector.Collect(ctx); err != nil {
+			c.log.Error(err, "collect", "collector", collector.Name())
+		}
 	}
 }
