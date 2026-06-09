@@ -1,57 +1,66 @@
----
+# Self-contained demo stack: monerod + monero-exporter + Prometheus + Grafana,
+# all on official upstream images (no custom build needed).
+#
+#   docker compose up -d
+#   open http://localhost:3000   (Grafana, anonymous admin — demo only)
+#
+# In a real deployment you would NOT run monerod here; you would point
+# monero-exporter at your existing node (see the README's "RPC authentication"
+# section for talking to a remote, authenticated daemon).
+
 services:
-  grafana:
-    command:
-    - -config=/etc/grafana/grafana.ini
-    container_name: grafana
-    image: index.docker.io/utxobr/monero-exporter-grafana@sha256:0e9f595487e7ee07f9059f75c302ce56fbe559074c0ba95a1d46a9a3c1c859a2
-    ports:
-    - 3000:3000
-    volumes:
-    - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
-    - ./grafana/provisioning:/etc/grafana/provisioning:ro
-    - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
-  monero-exporter:
-    command:
-    - --monero-addr=http://127.0.0.1:18081
-    container_name: monero-exporter
-    image: index.docker.io/utxobr/monero-exporter@sha256:737413b1054583535e835e1417b61a8d59a4c08723e4a15c61c4249c2a7d69a4
-    network_mode: service:monerod
+  # A throwaway monerod purely so the stack works out of the box. simple-monerod
+  # is a well-maintained community image. Its restricted RPC (18089) is exposed;
+  # the unrestricted RPC (18081) stays on loopback and is reached by the exporter
+  # through the shared network namespace below.
   monerod:
-    command:
-    - --check-updates=disabled
-    - --data-dir=/data
-    - --enforce-dns-checkpointing
-    - --in-peers=1024
-    - --limit-rate=999999
-    - --no-igd
-    - --no-zmq
-    - --out-peers=32
-    - --p2p-bind-ip=0.0.0.0
-    - --p2p-bind-port=18080
-    - --public-node
-    - --rpc-bind-ip=127.0.0.1
-    - --rpc-bind-port=18081
-    - --rpc-restricted-bind-ip=0.0.0.0
-    - --rpc-restricted-bind-port=18089
+    image: ghcr.io/sethforprivacy/simple-monerod:latest
     container_name: monerod
-    image: index.docker.io/utxobr/monero-exporter-monerod@sha256:19d889447ba4f703957d952ac753b330d5a2d7e324c98eac1f0f3d8bf2744817
+    restart: unless-stopped
+    volumes:
+      - monerod-data:/home/monero/.bitmonero
     ports:
-    - 18080:18080
-    - 18089:18089
-    volumes:
-    - monerod-data:/data
-  prometheus:
+      - 18080:18080
+      - 18089:18089
     command:
-    - --config.file=/etc/prometheus/config.yaml
-    - --storage.tsdb.path=/data
-    - --storage.tsdb.retention.time=30d
+      - --rpc-bind-ip=127.0.0.1
+      - --rpc-bind-port=18081
+      - --rpc-restricted-bind-ip=0.0.0.0
+      - --rpc-restricted-bind-port=18089
+      - --no-zmq
+
+  monero-exporter:
+    image: ghcr.io/mathieumaf/monero-exporter:latest
+    container_name: monero-exporter
+    restart: unless-stopped
+    # Share monerod's network namespace so the exporter can reach the
+    # unrestricted RPC on loopback without exposing it or needing auth.
+    network_mode: service:monerod
+    command:
+      - --monero-addr=http://127.0.0.1:18081
+
+  prometheus:
+    image: prom/prometheus:latest
     container_name: prometheus
-    image: index.docker.io/utxobr/monero-exporter-prometheus@sha256:21fcd719c6a3c8de35d513887e6666a5c49a15be742e328c034511cd60b5573e
+    restart: unless-stopped
     volumes:
-    - prometheus-data:/data
-    - ./prometheus/config.yaml:/etc/prometheus/config.yaml:ro
-version: "3"
+      - prometheus-data:/prometheus
+      - ./prometheus/config.yaml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=30d
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    volumes:
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - 3000:3000
+
 volumes:
-  monerod-data: null
-  prometheus-data: null
+  monerod-data:
+  prometheus-data:
