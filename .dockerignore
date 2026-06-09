@@ -1,0 +1,11 @@
+# Keep the build context small and the build cache stable. The Dockerfile only
+# needs go.mod/go.sum and the source packages.
+.git
+.github
+dist
+examples
+*.md
+.golangci.yaml
+.goreleaser.yml
+Dockerfile
+.dockerignore
