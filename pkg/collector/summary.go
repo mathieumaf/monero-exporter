@@ -7,7 +7,6 @@ import "github.com/beorn7/perks/quantile"
 //
 // these (quantile -> epsilon) will be used by default by any Summary unless
 // initialized with the `WithQuantiles` option to override it.
-//
 var defaultQuantiles = map[float64]float64{
 	0.05: 0.01,
 	0.10: 0.01,
@@ -61,16 +60,19 @@ func (s *Summary) Insert(v float64) {
 
 func (s *Summary) Count() uint64 {
 	s.compute()
+
 	return s.count
 }
 
 func (s *Summary) Quantiles() map[float64]float64 {
 	s.compute()
+
 	return s.quantiles
 }
 
 func (s *Summary) Sum() float64 {
 	s.compute()
+
 	return s.sum
 }
 

@@ -4,14 +4,26 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"os"
 
 	"github.com/oschwald/geoip2-golang"
 	"github.com/spf13/cobra"
 
+	mhttp "github.com/cirocosta/go-monero/pkg/http"
 	"github.com/cirocosta/go-monero/pkg/rpc"
 	"github.com/cirocosta/go-monero/pkg/rpc/daemon"
-	"github.com/cirocosta/monero-exporter/pkg/collector"
-	"github.com/cirocosta/monero-exporter/pkg/exporter"
+
+	"github.com/mathieumaf/monero-exporter/pkg/collector"
+	"github.com/mathieumaf/monero-exporter/pkg/exporter"
+)
+
+// Environment variables consulted as a fallback for the RPC credentials, so
+// that the password never has to appear in the process' command line (where it
+// would be visible to anyone running `ps`). A flag, when set, takes precedence.
+const (
+	envRPCUser = "MONERO_RPC_USER"
+	// #nosec G101 -- this is the env var NAME, not a credential.
+	envRPCPassword = "MONERO_RPC_PASSWORD"
 )
 
 type command struct {
@@ -19,6 +31,9 @@ type command struct {
 	bindAddr      string
 	geoIPFilepath string
 	moneroAddr    string
+	rpcUser       string
+	rpcPassword   string
+	tlsSkipVerify bool
 }
 
 func (c *command) Cmd() *cobra.Command {
@@ -43,47 +58,111 @@ func (c *command) Cmd() *cobra.Command {
 			"resolution")
 	_ = cmd.MarkFlagFilename("geoip-filepath")
 
+	cmd.Flags().StringVar(&c.rpcUser, "monero-rpc-user",
+		"", "username for monerod's RPC digest authentication "+
+			"(matches the first half of monerod's --rpc-login); "+
+			"falls back to the "+envRPCUser+" environment variable")
+
+	cmd.Flags().StringVar(&c.rpcPassword, "monero-rpc-password",
+		"", "password for monerod's RPC digest authentication "+
+			"(matches the second half of monerod's --rpc-login); "+
+			"prefer the "+envRPCPassword+" environment variable to "+
+			"keep the secret out of the process command line")
+
+	cmd.Flags().BoolVar(&c.tlsSkipVerify, "tls-skip-verify",
+		false, "skip TLS certificate verification when monero-addr "+
+			"is an https endpoint")
+
 	return cmd
+}
+
+// resolveRPCCredentials returns the RPC username and password, preferring the
+// flags and falling back to the environment variables. An empty pair means no
+// authentication is configured (the daemon is reached without credentials).
+func (c *command) resolveRPCCredentials() (user, password string) {
+	user, password = c.rpcUser, c.rpcPassword
+
+	if user == "" {
+		user = os.Getenv(envRPCUser)
+	}
+
+	if password == "" {
+		password = os.Getenv(envRPCPassword)
+	}
+
+	return user, password
+}
+
+// newDaemonClient builds a monerod daemon RPC client, wiring HTTP digest
+// authentication when RPC credentials are configured (via flags or env vars).
+func (c *command) newDaemonClient() (*daemon.Client, error) {
+	rpcUser, rpcPassword := c.resolveRPCCredentials()
+
+	httpClient, err := mhttp.NewClient(mhttp.ClientConfig{
+		Username:      rpcUser,
+		Password:      rpcPassword,
+		TLSSkipVerify: c.tlsSkipVerify,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("new http client: %w", err)
+	}
+
+	rpcClient, err := rpc.NewClient(c.moneroAddr,
+		rpc.WithHTTPClient(httpClient),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("new client '%s': %w", c.moneroAddr, err)
+	}
+
+	return daemon.NewClient(rpcClient), nil
+}
+
+// collectorOptions returns the collector options derived from the command's
+// configuration, opening the GeoIP database when a filepath was supplied. The
+// returned cleanup closes any resources held by the options.
+func (c *command) collectorOptions() (opts []collector.Option, cleanup func(), err error) {
+	cleanup = func() {}
+
+	if c.geoIPFilepath == "" {
+		return opts, cleanup, nil
+	}
+
+	db, err := geoip2.Open(c.geoIPFilepath)
+	if err != nil {
+		return nil, cleanup, fmt.Errorf("geoip open: %w", err)
+	}
+	cleanup = func() { _ = db.Close() }
+
+	countryMapper := func(ip net.IP) (string, error) {
+		res, err := db.Country(ip)
+		if err != nil {
+			return "", fmt.Errorf("country '%s': %w", ip, err)
+		}
+
+		return res.RegisteredCountry.IsoCode, nil
+	}
+
+	opts = append(opts, collector.WithCountryMapper(countryMapper))
+
+	return opts, cleanup, nil
 }
 
 func (c *command) RunE(_ *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	rpcClient, err := rpc.NewClient(c.moneroAddr)
+	daemonClient, err := c.newDaemonClient()
 	if err != nil {
-		return fmt.Errorf("new client '%s': %w", c.moneroAddr, err)
+		return err
 	}
 
-	daemonClient := daemon.NewClient(rpcClient)
-
-	collectorOpts := []collector.Option{}
-
-	if c.geoIPFilepath != "" {
-		db, err := geoip2.Open(c.geoIPFilepath)
-		if err != nil {
-			return fmt.Errorf("geoip open: %w", err)
-		}
-		defer db.Close()
-
-		countryMapper := func(ip net.IP) (string, error) {
-			res, err := db.Country(ip)
-			if err != nil {
-				return "", fmt.Errorf(
-					"country '%s': %w", ip, err,
-				)
-			}
-
-			return res.RegisteredCountry.IsoCode, nil
-		}
-
-		collectorOpts = append(collectorOpts,
-			collector.WithCountryMapper(countryMapper),
-		)
-	}
-
-	err = collector.Register(daemonClient, collectorOpts...)
+	collectorOpts, cleanup, err := c.collectorOptions()
 	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	if err := collector.Register(daemonClient, collectorOpts...); err != nil {
 		return fmt.Errorf("collector register: %w", err)
 	}
 

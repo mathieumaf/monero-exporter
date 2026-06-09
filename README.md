@@ -26,6 +26,9 @@
 
 ## About
 
+> Maintained fork of [cirocosta/monero-exporter]; original work © 2021 Ciro S.
+> Costa, licensed under Apache 2.0.
+
 `monero-exporter` is a single multiplatform binary that extracts metrics out of
 a running [monero] node, allowing one to better observe the state of its own
 daemon and the network as seen by it.
@@ -44,18 +47,50 @@ Available Commands:
   version     print the version of this CLI
 
 Flags:
-      --bind-addr string        address to bind the prometheus server to 
-                                (default ":9090")
-      --geoip-filepath string   filepath of a geoip database file for ip to 
-                                country resolution
-  -h, --help                    help for monero-exporter
-      --monero-addr string      address of the monero instance to collect info 
-                                from (default "http://localhost:18081")
-      --telemetry-path string   endpoint at which prometheus metrics are served 
-                                (default "/metrics")
+      --bind-addr string             address to bind the prometheus server to 
+                                     (default ":9000")
+      --geoip-filepath string        filepath of a geoip database file for ip to 
+                                     country resolution
+  -h, --help                         help for monero-exporter
+      --monero-addr string           address of the monero instance to collect 
+                                     info from (default "http://localhost:18081")
+      --monero-rpc-user string       username for monerod's RPC digest auth 
+                                     (matches the first half of --rpc-login); 
+                                     falls back to MONERO_RPC_USER
+      --monero-rpc-password string   password for monerod's RPC digest auth 
+                                     (matches the second half of --rpc-login); 
+                                     prefer MONERO_RPC_PASSWORD
+      --telemetry-path string        endpoint at which prometheus metrics are 
+                                     served (default "/metrics")
+      --tls-skip-verify              skip TLS certificate verification when 
+                                     monero-addr is an https endpoint
 
 Use "monero-exporter [command] --help" for more information about a command.
 ```
+
+### RPC authentication
+
+When `monerod` is started with `--rpc-login=<user>:<password>` (typically to
+expose the *unrestricted* RPC to a remote monitoring host), the exporter must
+authenticate. `monerod` uses **HTTP digest** authentication, which the exporter
+performs transparently once credentials are supplied:
+
+```console
+# flags (note: a password on the command line is visible via `ps`)
+$ monero-exporter \
+    --monero-addr=http://10.88.0.2:18081 \
+    --monero-rpc-user=monitoring \
+    --monero-rpc-password=s3cr3t
+
+# or, keeping the secret out of the process command line, via env vars
+$ export MONERO_RPC_USER=monitoring
+$ export MONERO_RPC_PASSWORD=s3cr3t
+$ monero-exporter --monero-addr=http://10.88.0.2:18081
+```
+
+Flags take precedence over the `MONERO_RPC_USER` / `MONERO_RPC_PASSWORD`
+environment variables. With no credentials configured the exporter talks to the
+daemon unauthenticated, which is the right choice for a loopback/restricted RPC.
 
 It works by issuing remote procedure calls (RPC) to a monero node and based on
 the responses it gets, exposing metrics to a Prometheus server querying
@@ -112,16 +147,19 @@ setup usually looks like:
 
 ## Installation
 
-You can either install it by using [Go], building the latest tagged release
-from scratch
+Pull the signed multi-arch container image from GHCR
 
 ```bash
-GO111MODULE=on \
-  go get github.com/cirocosta/monero-exporter/cmd/monero-exporter
+docker pull ghcr.io/mathieumaf/monero-exporter:latest
 ```
 
-or fetching the binary for your corresponding distribution from the [releases
-page]. 
+or build the latest tagged release from source with [Go]
+
+```bash
+go install github.com/mathieumaf/monero-exporter/cmd/monero-exporter@latest
+```
+
+or fetch the binary for your platform from the [releases page].
 
 See [INSTALL.md] for details and examples.
 
@@ -327,6 +365,7 @@ See [LICENSE](./LICENSE).
 ["Why do you pull rather than push?"]: https://prometheus.io/docs/introduction/faq/#why-do-you-pull-rather-than-push
 [Go]: https://golang.org/
 [INSTALL.md]: ./INSTALL.md
+[cirocosta/monero-exporter]: https://github.com/cirocosta/monero-exporter
 [InfluxDB]: https://github.com/influxdata/influxdb
 [donation qrcode]: ./.github/assets/donate.png
 [grafana]: https://github.com/grafana/grafana
@@ -334,5 +373,5 @@ See [LICENSE](./LICENSE).
 [monero]: https://github.com/monero-project/monero
 [prometheus]: https://prometheus.io
 [promql]: https://prometheus.io/docs/prometheus/latest/querying/basics/
-[releases page]: https://github.com/cirocosta/monero-exporter/releases
+[releases page]: https://github.com/mathieumaf/monero-exporter/releases
 [docker-compose]: https://docs.docker.com/compose/

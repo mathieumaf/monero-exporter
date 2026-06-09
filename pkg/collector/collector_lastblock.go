@@ -268,6 +268,7 @@ func (c *LastBlockStatsCollector) collectTransactionsOutputs() {
 	)
 }
 
+//nolint:unused // kept for parity with the other per-field collectors; wired up on demand.
 func (c *LastBlockStatsCollector) collectVersions() {
 	c.metricsC <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc(

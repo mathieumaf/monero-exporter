@@ -97,7 +97,6 @@ func (c *TransactionPoolCollector) collectSpentKeyImages() {
 		prometheus.GaugeValue,
 		float64(len(c.pool.SpentKeyImages)),
 	)
-
 }
 
 func (c *TransactionPoolCollector) collectTransactionsCount() {
@@ -113,7 +112,6 @@ func (c *TransactionPoolCollector) collectTransactionsCount() {
 		prometheus.GaugeValue,
 		float64(len(c.pool.Transactions)),
 	)
-
 }
 
 func (c *TransactionPoolCollector) collectSize() {

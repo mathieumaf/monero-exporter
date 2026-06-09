@@ -1,33 +1,38 @@
-# releasing
+# Releasing
 
-1. build the container images
+Releases are fully automated. Pushing a `v*` tag triggers
+[`.github/workflows/release.yml`](.github/workflows/release.yml), which:
 
-```
-make images
-```
+1. runs **GoReleaser** to cross-compile the binaries, build the archives and
+   checksums, and create the GitHub Release with an auto-generated changelog;
+2. builds the **multi-arch container image** (`linux/amd64`, `linux/arm64`) and
+   pushes it to `ghcr.io/mathieumaf/monero-exporter`, tagged `vX.Y.Z`,
+   `X.Y` and (for non-prereleases) `latest`;
+3. **signs the image** with cosign (keyless / OIDC).
 
-2. create a final commit with the images checked out
+No secrets need to be configured: the workflow authenticates to GHCR and to
+sigstore with the repository's built-in `GITHUB_TOKEN` and OIDC identity.
 
-```
-git add --all .
-git commit # bla bla
-```
+## Cutting a release
 
-3. create a new signed tag
-
-```
-git tag -s $version
-```
-
-4. build the release binaries
-
-```
-goreleaser release --rm-dist
+```bash
+# make sure master is green and up to date, then:
+git tag v1.2.3
+git push origin v1.2.3
 ```
 
-5. sign the checksums
+Use a pre-release suffix (e.g. `v1.2.3-rc.1`) to publish a GitHub pre-release;
+the `latest` image tag is skipped automatically for those.
 
-```
-export GPG_TTY=$(tty)
-gpg --clearsign ./dist/checksums.txt
+## Testing locally
+
+```bash
+# build a snapshot of the binaries/archives without publishing anything
+make snapshot          # -> goreleaser release --snapshot --clean (output in dist/)
+
+# validate the GoReleaser config
+goreleaser check
+
+# build the image locally (single arch)
+docker build -t monero-exporter:dev .
 ```

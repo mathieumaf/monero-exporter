@@ -69,6 +69,7 @@ func (c *RPCCollector) collectRPC() {
 		c.metricsC <- prometheus.MustNewConstMetric(
 			timeDesc,
 			prometheus.GaugeValue,
+			//nolint:gosec // an RPC timing value comfortably fits in int64.
 			time.Duration(int64(d.Time)).Seconds(),
 			d.RPC,
 		)
