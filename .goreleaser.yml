@@ -1,5 +1,12 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
 builds:
-  - binary: monero-exporter
+  - id: monero-exporter
+    binary: monero-exporter
     main: ./cmd/monero-exporter
     env:
       - CGO_ENABLED=0
@@ -7,25 +14,58 @@ builds:
       - linux
       - windows
       - darwin
+    goarch:
+      - amd64
+      - arm
+      - arm64
+    goarm:
+      - "6"
+      - "7"
+    ignore:
+      # 32-bit arm is irrelevant on these platforms.
+      - goos: darwin
+        goarch: arm
+      - goos: windows
+        goarch: arm
     tags:
       - osusergo
       - netgo
       - static_build
     flags:
       - -trimpath
+      - -buildvcs=false
     ldflags:
-      - '-s -w -X main.version={{.Version}} -X main.commit={{.Commit}}'
-    mod_timestamp: '{{ .CommitTimestamp }}'
-    goarch:
-      - amd64
-      - arm
-      - arm64
-    goarm:
-      - 6
-      - 7
+      - -s -w -X main.version={{ .Version }} -X main.commit={{ .Commit }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ with .Arm }}v{{ . }}{{ end }}
 
 checksum:
-  name_template: 'checksums.txt'
+  name_template: checksums.txt
 
 snapshot:
-  name_template: "{{ .Tag }}-next"
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - Merge pull request
+      - Merge branch
+
+release:
+  prerelease: auto

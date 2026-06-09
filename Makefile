@@ -1,6 +1,3 @@
-SPACE := $(subst ,, )
-
-
 install:
 	go install -v ./cmd/monero-exporter
 
@@ -13,17 +10,14 @@ test:
 	go test ./...
 
 lint:
-	go run github.com/golangci/golangci-lint/cmd/golangci-lint run \
-		--config=.golangci.yaml
+	golangci-lint run ./...
 
+# Build a snapshot release (binaries + archives) locally, without publishing.
+# A real release is cut by pushing a v* tag — see .github/workflows/release.yml.
+snapshot:
+	goreleaser release --snapshot --clean
 
 table-of-contents:
 	doctoc --notitle ./README.md
 
-
-.images.lock.yaml: .images.yaml
-	kbld -f $< --lock-output $@
-.PHONY: .images.lock.yaml
-
-examples/docker-compose.yaml: .images.lock.yaml ./examples/docker-compose.base.yaml
-	kbld --images-annotation=false $(subst $(SPACE), -f , $^) > $@
+.PHONY: install run test lint snapshot table-of-contents
