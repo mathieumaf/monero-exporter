@@ -60,6 +60,9 @@ Flags:
       --monero-rpc-password string   password for monerod's RPC digest auth 
                                      (matches the second half of --rpc-login); 
                                      prefer MONERO_RPC_PASSWORD
+      --refresh-interval duration    when > 0, collect from monerod in the 
+                                     background on this interval and serve a 
+                                     cached snapshot per scrape (default 0 = live)
       --telemetry-path string        endpoint at which prometheus metrics are 
                                      served (default "/metrics")
       --tls-skip-verify              skip TLS certificate verification when 
@@ -67,6 +70,20 @@ Flags:
 
 Use "monero-exporter [command] --help" for more information about a command.
 ```
+
+### Background caching (`--refresh-interval`)
+
+By default the exporter queries monerod **live on every scrape**. That couples
+scrape success to RPC latency: while the daemon is busy (e.g. during initial
+block download) a sweep can exceed Prometheus' `scrape_timeout`, failing the
+whole scrape and leaving gaps in every panel.
+
+Set `--refresh-interval` (e.g. `30s`) to switch to **cache mode**: the exporter
+refreshes its metrics in the background on that interval and serves the last
+snapshot to every scrape instantly, so scrapes never time out regardless of how
+slow or unreachable monerod is. Because the scrape then always succeeds, watch
+the dedicated health metric **`monero_up`** (`0` when the last refresh could not
+reach monerod) instead of Prometheus' built-in `up` for alerting.
 
 ### RPC authentication
 
@@ -351,6 +368,15 @@ General information about this node.
 | monero_info_uptime_seconds_total | for how long this node has been up |
 | monero_info_database_size_bytes | size of the monero database |
 | monero_info_free_space_bytes | amount of free space in the partition where monero's database is in |
+
+### Exporter
+
+Health of the exporter's own collection (most useful with `--refresh-interval`).
+
+| name | description |
+| ---- | ----------- |
+| monero_up | whether the last collection cycle reached monerod without any collector error (1) or not (0) |
+| monero_exporter_collection_duration_seconds | wall-clock duration of the last collection cycle |
 
 ## License
 

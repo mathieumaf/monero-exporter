@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"time"
 
 	"github.com/oschwald/geoip2-golang"
 	"github.com/spf13/cobra"
@@ -27,13 +28,14 @@ const (
 )
 
 type command struct {
-	telemetryPath string
-	bindAddr      string
-	geoIPFilepath string
-	moneroAddr    string
-	rpcUser       string
-	rpcPassword   string
-	tlsSkipVerify bool
+	telemetryPath   string
+	bindAddr        string
+	geoIPFilepath   string
+	moneroAddr      string
+	rpcUser         string
+	rpcPassword     string
+	tlsSkipVerify   bool
+	refreshInterval time.Duration
 }
 
 func (c *command) Cmd() *cobra.Command {
@@ -72,6 +74,12 @@ func (c *command) Cmd() *cobra.Command {
 	cmd.Flags().BoolVar(&c.tlsSkipVerify, "tls-skip-verify",
 		false, "skip TLS certificate verification when monero-addr "+
 			"is an https endpoint")
+
+	cmd.Flags().DurationVar(&c.refreshInterval, "refresh-interval",
+		0, "when > 0, collect metrics from monerod in the background on "+
+			"this interval and serve the cached snapshot to every "+
+			"scrape, instead of querying live per scrape; decouples "+
+			"scrape success from RPC latency (e.g. during sync)")
 
 	return cmd
 }
@@ -162,7 +170,11 @@ func (c *command) RunE(_ *cobra.Command, _ []string) error {
 	}
 	defer cleanup()
 
-	if err := collector.Register(daemonClient, collectorOpts...); err != nil {
+	collectorOpts = append(collectorOpts,
+		collector.WithRefreshInterval(c.refreshInterval),
+	)
+
+	if err := collector.Register(ctx, daemonClient, collectorOpts...); err != nil {
 		return fmt.Errorf("collector register: %w", err)
 	}
 
