@@ -153,6 +153,18 @@ func (c *OverallCollector) collect() {
 
 	c.metricsC <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc(
+			"monero_info_sync_ratio",
+			"chain sync progress as a ratio in [0,1] (1 = fully "+
+				"synced); monerod reports target_height=0 once "+
+				"synced, which this metric normalizes to 1",
+			nil, nil,
+		),
+		prometheus.GaugeValue,
+		syncRatio(c.info.Height, c.info.TargetHeight),
+	)
+
+	c.metricsC <- prometheus.MustNewConstMetric(
+		prometheus.NewDesc(
 			"monero_info_rpc_connections",
 			"number of rpc connections being served by the node",
 			nil, nil,
@@ -181,6 +193,17 @@ func (c *OverallCollector) collect() {
 		prometheus.GaugeValue,
 		float64(c.info.FreeSpace),
 	)
+}
+
+// syncRatio reports how far the chain has caught up, in [0,1]. monerod only
+// advertises a target_height while it is still catching up and reports 0 once
+// synced, so a zero (or already-reached) target is treated as fully synced.
+func syncRatio(height, targetHeight uint64) float64 {
+	if targetHeight == 0 || height >= targetHeight {
+		return 1
+	}
+
+	return float64(height) / float64(targetHeight)
 }
 
 func boolToFloat64(b bool) float64 {

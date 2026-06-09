@@ -346,6 +346,7 @@ General information about this node.
 | monero_info_offline | whether the node is offline |
 | monero_info_rpc_connections | number of rpc connections being served by the node |
 | monero_info_synchronized | whether the node's chain is in sync with the network|
+| monero_info_sync_ratio | chain sync progress as a ratio in [0,1] (1 = fully synced) |
 | monero_info_target_height | target height to achieve to be considered in sync |
 | monero_info_uptime_seconds_total | for how long this node has been up |
 | monero_info_database_size_bytes | size of the monero database |
