@@ -6,8 +6,8 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/cirocosta/go-monero/pkg/constant"
-	"github.com/cirocosta/go-monero/pkg/rpc/daemon"
+	"github.com/mathieumaf/go-monero/pkg/constant"
+	"github.com/mathieumaf/go-monero/pkg/rpc/daemon"
 )
 
 type LastBlockStatsCollector struct {
