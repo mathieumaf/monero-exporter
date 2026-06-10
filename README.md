@@ -385,16 +385,14 @@ See [LICENSE](./LICENSE).
 
 ## Donate
 
-![donation qrcode]
-
-891B5keCnwXN14hA9FoAzGFtaWmcuLjTDT5aRTp65juBLkbNpEhLNfgcBn6aWdGuBqBnSThqMPsGRjWVQadCrhoAT6CnSL3
+Don't. Point that XMR at your own cold wallet — a well-monitored node is the
+only tip this fork is after. ⭐ the repo if it earned its keep.
 
 ["Why do you pull rather than push?"]: https://prometheus.io/docs/introduction/faq/#why-do-you-pull-rather-than-push
 [Go]: https://golang.org/
 [INSTALL.md]: ./INSTALL.md
 [cirocosta/monero-exporter]: https://github.com/cirocosta/monero-exporter
 [InfluxDB]: https://github.com/influxdata/influxdb
-[donation qrcode]: ./.github/assets/donate.png
 [grafana]: https://github.com/grafana/grafana
 [monero-project/monero]: https://github.com/monero-project/monero
 [monero]: https://github.com/monero-project/monero
