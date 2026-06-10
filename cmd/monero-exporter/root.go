@@ -10,9 +10,9 @@ import (
 	"github.com/oschwald/geoip2-golang"
 	"github.com/spf13/cobra"
 
-	mhttp "github.com/cirocosta/go-monero/pkg/http"
-	"github.com/cirocosta/go-monero/pkg/rpc"
-	"github.com/cirocosta/go-monero/pkg/rpc/daemon"
+	mhttp "github.com/mathieumaf/go-monero/pkg/http"
+	"github.com/mathieumaf/go-monero/pkg/rpc"
+	"github.com/mathieumaf/go-monero/pkg/rpc/daemon"
 
 	"github.com/mathieumaf/monero-exporter/pkg/collector"
 	"github.com/mathieumaf/monero-exporter/pkg/exporter"

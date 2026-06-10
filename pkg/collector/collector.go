@@ -12,7 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 
-	"github.com/cirocosta/go-monero/pkg/rpc/daemon"
+	"github.com/mathieumaf/go-monero/pkg/rpc/daemon"
 )
 
 // collectTimeout bounds how long a single collection cycle may take, so a hung
