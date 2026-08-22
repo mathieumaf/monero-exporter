@@ -6,7 +6,7 @@ require (
 	github.com/beorn7/perks v1.0.1
 	github.com/go-logr/logr v1.4.4
 	github.com/go-logr/zapr v1.3.0
-	github.com/mathieumaf/go-monero v0.2.1
+	github.com/mathieumaf/go-monero v0.2.2
 	github.com/oschwald/geoip2-golang v1.13.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/spf13/cobra v1.10.2
