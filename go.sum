@@ -17,8 +17,8 @@ github.com/klauspost/compress v1.19.1 h1:VsB4HPswih7mmZ8WleSFQ75c/Ui1M4trX5oAsJn
 github.com/klauspost/compress v1.19.1/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
 github.com/kylelemons/godebug v1.1.0 h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=
 github.com/kylelemons/godebug v1.1.0/go.mod h1:9/0rRGxNHcop5bhtWyNeEfOS8JIWk580+fNqagV/RAw=
-github.com/mathieumaf/go-monero v0.2.1 h1:/6v/4OYpZpgSj09iOi7arzHwILdbPM8t0aDWTGrUtLQ=
-github.com/mathieumaf/go-monero v0.2.1/go.mod h1:9FCpG4ELAw+IThZ1ieYo7M9t3T3C06LVIZyKwdf0gIE=
+github.com/mathieumaf/go-monero v0.2.2 h1:v7QJ+P1j1oS1qR7niMEfs6inAeyEemfCpSuWkLcOlsM=
+github.com/mathieumaf/go-monero v0.2.2/go.mod h1:CEmh3a0EpS/c331ybf+rL2/wV2wSFQuYo7pFi3yWRho=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 h1:C3w9PqII01/Oq1c1nUAm88MOHcQC9l5mIlSMApZMrHA=
 github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822/go.mod h1:+n7T8mK8HuQTcFwEeznm/DIxMOiR9yIdICNftLE1DvQ=
 github.com/oschwald/geoip2-golang v1.13.0 h1:Q44/Ldc703pasJeP5V9+aFSZFmBN7DKHbNsSFzQATJI=
