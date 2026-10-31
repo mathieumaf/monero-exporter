@@ -1,0 +1,30 @@
+{
+  "block_header": {
+    "block_size": 18432,
+    "block_weight": 18432,
+    "cumulative_difficulty": 150000000000000000,
+    "cumulative_difficulty_top64": 0,
+    "depth": 0,
+    "difficulty": 320000000000,
+    "difficulty_top64": 0,
+    "hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "height": 3500000,
+    "long_term_weight": 18000,
+    "major_version": 16,
+    "miner_tx_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "minor_version": 16,
+    "nonce": 42,
+    "num_txes": 2,
+    "orphan_status": false,
+    "pow_hash": "",
+    "prev_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "reward": 628000000000,
+    "timestamp": 1768478200,
+    "wide_cumulative_difficulty": "0x215d1c8f1b800000",
+    "wide_difficulty": "0x4a817c8000"
+  },
+  "credits": 0,
+  "status": "OK",
+  "top_hash": "",
+  "untrusted": false
+}

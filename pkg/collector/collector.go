@@ -112,7 +112,7 @@ func WithCollectTimeout(v time.Duration) func(c *Collector) {
 	}
 }
 
-// WithLogger overrides the collector logger. When unset, Register builds a
+// WithLogger overrides the collector logger. When unset, New builds a
 // production zap logger at info level.
 func WithLogger(log logr.Logger) func(c *Collector) {
 	return func(c *Collector) {
@@ -124,12 +124,11 @@ func defaultCountryMapper(_ net.IP) (string, error) {
 	return "unknown", nil
 }
 
-// Register registers this collector with the global prometheus collectors
-// registry making it available for an exporter to collect our metrics.
-//
-// When a refresh interval is configured (cache mode), it also starts the
-// background refresh loop, which runs until ctx is cancelled.
-func Register(ctx context.Context, client *daemon.Client, opts ...Option) error {
+// New builds a collector for client. It does not register the collector and
+// does not start the background refresh loop; Register does both. Tests use
+// New with a private registry so a scrape does not touch the process-global
+// default gatherer.
+func New(client *daemon.Client, opts ...Option) (*Collector, error) {
 	c := &Collector{
 		client:         client,
 		countryMapper:  defaultCountryMapper,
@@ -147,10 +146,24 @@ func Register(ctx context.Context, client *daemon.Client, opts ...Option) error 
 	if c.log.GetSink() == nil {
 		defaultLogger, err := zap.NewProduction()
 		if err != nil {
-			return fmt.Errorf("zap new production: %w", err)
+			return nil, fmt.Errorf("zap new production: %w", err)
 		}
 
 		c.log = zapr.NewLogger(defaultLogger)
+	}
+
+	return c, nil
+}
+
+// Register registers this collector with the global prometheus collectors
+// registry making it available for an exporter to collect our metrics.
+//
+// When a refresh interval is configured (cache mode), it also starts the
+// background refresh loop, which runs until ctx is cancelled.
+func Register(ctx context.Context, client *daemon.Client, opts ...Option) error {
+	c, err := New(client, opts...)
+	if err != nil {
+		return err
 	}
 
 	if err := prometheus.Register(c); err != nil {
@@ -246,7 +259,7 @@ func (c *Collector) refreshOnce(ctx context.Context) {
 // challenge at a time avoids the race entirely. A failing collector only drops
 // its own metrics, never the others'; it flips monero_up to 0.
 func (c *Collector) gather(ctx context.Context) []prometheus.Metric {
-	start := time.Now()
+	start := clockNow()
 	buf := make(chan prometheus.Metric, 512)
 
 	// get_info (overall) is the cheapest and most important call, so it goes
@@ -287,7 +300,7 @@ func (c *Collector) gather(ctx context.Context) []prometheus.Metric {
 		),
 		prometheus.MustNewConstMetric(
 			collectionDurationDesc, prometheus.GaugeValue,
-			time.Since(start).Seconds(),
+			clockNow().Sub(start).Seconds(),
 		),
 	)
 

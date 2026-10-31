@@ -1,0 +1,30 @@
+{
+  "credits": 0,
+  "pool_stats": {
+    "bytes_max": 2048,
+    "bytes_med": 1536,
+    "bytes_min": 1024,
+    "bytes_total": 3072,
+    "fee_total": 14000000000,
+    "histo": [
+      {
+        "bytes": 1024,
+        "txs": 1
+      },
+      {
+        "bytes": 2048,
+        "txs": 1
+      }
+    ],
+    "histo_98pc": 2048,
+    "num_10m": 4,
+    "num_double_spends": 2,
+    "num_failing": 1,
+    "num_not_relayed": 3,
+    "oldest": 1768477800,
+    "txs_total": 2
+  },
+  "status": "OK",
+  "top_hash": "",
+  "untrusted": false
+}

@@ -56,7 +56,7 @@ func (c *OverallCollector) fetchData(ctx context.Context) error {
 
 //nolint:funlen // a long but flat sequence of independent metric emissions.
 func (c *OverallCollector) collect() {
-	now := time.Now()
+	now := clockNow()
 
 	c.metricsC <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc(

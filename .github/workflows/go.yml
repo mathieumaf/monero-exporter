@@ -18,7 +18,39 @@ jobs:
       - name: Build
         run: make install
       - name: Test
-        run: make test
+        run: go test -race ./...
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+      - name: Vulnerability check
+        run: govulncheck ./...
+      - name: Install promtool
+        run: |
+          version=3.15.1
+          curl -fsSL -o /tmp/prometheus.tar.gz \
+            "https://github.com/prometheus/prometheus/releases/download/v${version}/prometheus-${version}.linux-amd64.tar.gz"
+          tar -C /tmp -xzf /tmp/prometheus.tar.gz
+          mkdir -p "$HOME/bin"
+          install -m 0755 \
+            "/tmp/prometheus-${version}.linux-amd64/promtool" \
+            "$HOME/bin/promtool"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
+      - name: Validate golden metrics
+        run: |
+          set +e
+          promtool check metrics < pkg/collector/testdata/metrics.golden \
+            2> /tmp/promtool.txt
+          code=$?
+          set -e
+          if [ "$code" -ne 0 ] && [ "$code" -ne 3 ]; then
+            echo "promtool failed with exit ${code}"
+            cat /tmp/promtool.txt
+            exit "$code"
+          fi
+          # Exit 0 and exit 3 both mean the check ran. The baseline is the
+          # current finding set; a new or missing finding fails the job.
+          sort /tmp/promtool.txt > /tmp/promtool.sorted
+          sort pkg/collector/testdata/promtool_baseline.txt > /tmp/baseline.sorted
+          diff -u /tmp/baseline.sorted /tmp/promtool.sorted
 
   lint:
     runs-on: ubuntu-latest

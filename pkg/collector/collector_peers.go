@@ -80,7 +80,7 @@ func (c *PeersCollector) collectPeersCount() {
 }
 
 func (c *PeersCollector) collectPeersLastSeen() {
-	now := time.Now()
+	now := clockNow()
 	summary := NewSummary()
 
 	for _, peer := range c.whitelist {
