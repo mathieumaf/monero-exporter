@@ -67,6 +67,10 @@ Flags:
       --no-collector.<name>          disable a collector
       --collector.<name>.interval    minimum time between runs of that collector
                                      (0 = every cycle; not valid for overall)
+      --collector.transaction_pool.full
+                                     also call get_transaction_pool for
+                                     per-transaction mempool distributions
+                                     (expensive; default false)
       --telemetry-path string        endpoint at which prometheus metrics are 
                                      served (default "/metrics")
       --tls-skip-verify              skip TLS certificate verification when 
@@ -82,12 +86,18 @@ scrape success to RPC latency: while the daemon is busy (e.g. during initial
 block download) a sweep can exceed Prometheus' `scrape_timeout`, failing the
 whole scrape and leaving gaps in every panel.
 
-Set `--refresh-interval` (e.g. `30s`) to switch to **cache mode**: the exporter
-refreshes its metrics in the background on that interval and serves the last
-snapshot to every scrape instantly, so scrapes never time out regardless of how
-slow or unreachable monerod is. Because the scrape then always succeeds, watch
-the dedicated health metric **`monero_up`** (`0` when the last refresh could not
-reach monerod) instead of Prometheus' built-in `up` for alerting.
+Set `--refresh-interval` to switch to **cache mode**: the exporter refreshes its
+metrics in the background on that interval and serves the last snapshot to every
+scrape instantly, so scrapes never time out regardless of how slow or
+unreachable monerod is. The flag defaults to `0` (live on every scrape) so
+existing deployments keep that behavior. **`60s` is the recommended cache-mode
+value**: a full cycle on a slow disk can run well past 30s, and the interval
+should be longer than the cycle. If a cycle still overruns the interval, the
+exporter logs `collection cycle exceeded refresh interval` (with the measured
+duration) so the two can be tuned apart. Because the scrape then always
+succeeds, watch the dedicated health metric **`monero_up`** (`0` when the last
+refresh could not reach monerod) instead of Prometheus' built-in `up` for
+alerting.
 
 ### Collectors
 
@@ -295,6 +305,10 @@ blocks looked like as long as the interval between those scrapes where short
 enough (i.e., in between the mean time for a block to be mined - 2min as of
 today).
 
+The block body and its transactions are fetched only when `top_block_hash`
+changes (from `get_info`, or from `get_last_block_header` when that hash is
+unavailable). Until the next block, collection reuses the previous samples.
+
 
 | name | description |
 | ---- | ----------- |
@@ -320,22 +334,26 @@ node looked like when Prometheus asked the exporter information about it.
 Given the pull-based nature of Prometheus, this will be only as granular as the
 frequency of scraping configured for it.
 
+Aggregate series come from `get_transaction_pool_stats`. The per-transaction
+distributions require `--collector.transaction_pool.full`, which also calls
+`get_transaction_pool` and downloads every pooled transaction body. Leave that
+flag off unless you need those distributions.
 
 | name | description |
 | ---- | ----------- |
 | monero_transaction_pool_double_spends | transactions doubly spending outputs |
 | monero_transaction_pool_failing_transactions | number of transactions that are marked as failing |
-| monero_transaction_pool_fees_micronero_per_kb | distribution of the feeperkb utilized for txns in the pool |
+| monero_transaction_pool_fees_micronero_per_kb | distribution of the feeperkb utilized for txns in the pool (`--collector.transaction_pool.full`) |
 | monero_transaction_pool_fees_monero | total amount of fee being spent in the transaction pool |
 | monero_transaction_pool_not_relayed | number of transactions that have not been relayed |
 | monero_transaction_pool_older_than_10m | number of transactions that are older than 10m |
 | monero_transaction_pool_size_bytes | total size of the transaction pool |
-| monero_transaction_pool_spent_key_images | total number of key images spent across all transactions in the pool |
+| monero_transaction_pool_spent_key_images | total number of key images spent across all transactions in the pool (`--collector.transaction_pool.full`) |
 | monero_transaction_pool_transactions | number of transactions in the pool at the moment of the scrape |
-| monero_transaction_pool_transactions_age | distribution of for how long transactions have been in the pool |
-| monero_transaction_pool_transactions_inputs | distribution of inputs in the pool |
-| monero_transaction_pool_transactions_outputs | distribution of outputs in the pool |
-| monero_transaction_pool_transactions_size_bytes | distribution of the size of the transactions in the transaction pool |
+| monero_transaction_pool_transactions_age | distribution of for how long transactions have been in the pool (`--collector.transaction_pool.full`) |
+| monero_transaction_pool_transactions_inputs | distribution of inputs in the pool (`--collector.transaction_pool.full`) |
+| monero_transaction_pool_transactions_outputs | distribution of outputs in the pool (`--collector.transaction_pool.full`) |
+| monero_transaction_pool_transactions_size_bytes | distribution of the size of the transactions in the transaction pool (`--collector.transaction_pool.full`) |
 
 
 ### RPC

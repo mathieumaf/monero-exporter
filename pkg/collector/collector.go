@@ -45,7 +45,10 @@ var collectorOrder = []string{
 	CollectorPeerlist,
 }
 
-var errUnknownCollector = errors.New("unknown collector")
+var (
+	errUnknownCollector = errors.New("unknown collector")
+	errCycleSlow        = errors.New("collection cycle exceeded the refresh interval")
+)
 
 // CountryMapper defines the signature of a function that given an IP,
 // translates it into a country name.
@@ -94,6 +97,15 @@ type Collector struct {
 
 	// now, when set, replaces time.Now for interval scheduling.
 	now func() time.Time
+
+	// tipHash is top_block_hash from this cycle's get_info. blockHash and
+	// blockMetrics reuse the last-block series until that hash changes.
+	tipHash      string
+	blockHash    string
+	blockMetrics []prometheus.Metric
+
+	// txPoolFull opts into get_transaction_pool for per-transaction series.
+	txPoolFull bool
 
 	log logr.Logger
 }
@@ -162,6 +174,15 @@ func WithCollectorInterval(name string, interval time.Duration) Option {
 func WithNow(now func() time.Time) Option {
 	return func(c *Collector) {
 		c.now = now
+	}
+}
+
+// WithTransactionPoolFull opts into the full get_transaction_pool RPC so the
+// per-transaction mempool distributions are exported. It is off by default
+// because the response includes every pooled transaction body.
+func WithTransactionPoolFull(full bool) Option {
+	return func(c *Collector) {
+		c.txPoolFull = full
 	}
 }
 
@@ -304,6 +325,7 @@ func (c *Collector) gather(ctx context.Context) []prometheus.Metric {
 
 	start := time.Now()
 	now := c.currentTime()
+	c.tipHash = ""
 	ok := true
 	metrics := make([]prometheus.Metric, 0, 64)
 
@@ -326,7 +348,29 @@ func (c *Collector) gather(ctx context.Context) []prometheus.Metric {
 		),
 	)
 
+	c.noteCycle(time.Since(start))
+
 	return metrics
+}
+
+// Refresh runs one collection cycle. When a refresh interval is configured the
+// background loop calls this on each tick and scrapes serve the resulting
+// snapshot.
+func (c *Collector) Refresh(ctx context.Context) {
+	c.refreshOnce(ctx)
+}
+
+func (c *Collector) noteCycle(elapsed time.Duration) {
+	if c.refreshInterval <= 0 || elapsed <= c.refreshInterval {
+		return
+	}
+
+	c.log.Error(
+		errCycleSlow,
+		"collection cycle exceeded refresh interval",
+		"duration", elapsed.String(),
+		"refresh_interval", c.refreshInterval.String(),
+	)
 }
 
 // runCollector executes one collector when it is enabled and due. A disabled
@@ -409,6 +453,12 @@ func (c *Collector) currentTime() time.Time {
 func (c *Collector) collectOne(
 	ctx context.Context, name string,
 ) ([]prometheus.Metric, error) {
+	if name == CollectorLastBlock {
+		if cached := c.cachedBlock(); cached != nil {
+			return cached, nil
+		}
+	}
+
 	buf := make(chan prometheus.Metric, 32)
 	col, err := c.newCollector(name, buf)
 	if err != nil {
@@ -430,7 +480,30 @@ func (c *Collector) collectOne(
 		return nil, fmt.Errorf("collect %s: %w", name, err)
 	}
 
+	if name == CollectorLastBlock {
+		c.rememberBlock(metrics)
+	}
+
 	return metrics, nil
+}
+
+func (c *Collector) cachedBlock() []prometheus.Metric {
+	if c.tipHash == "" || c.tipHash != c.blockHash || len(c.blockMetrics) == 0 {
+		return nil
+	}
+
+	return c.blockMetrics
+}
+
+func (c *Collector) rememberBlock(metrics []prometheus.Metric) {
+	if c.tipHash == "" {
+		return
+	}
+
+	saved := make([]prometheus.Metric, len(metrics))
+	copy(saved, metrics)
+	c.blockHash = c.tipHash
+	c.blockMetrics = saved
 }
 
 func (c *Collector) newCollector(
@@ -438,11 +511,24 @@ func (c *Collector) newCollector(
 ) (CustomCollector, error) {
 	switch name {
 	case CollectorOverall:
-		return NewOverallCollector(c.client, ch), nil
+		col := NewOverallCollector(c.client, ch)
+		col.onInfo = func(info *daemon.GetInfoResult) {
+			if info != nil {
+				c.tipHash = info.TopBlockHash
+			}
+		}
+
+		return col, nil
 	case CollectorLastBlock:
-		return NewLastBlockStatsCollector(c.client, ch), nil
+		col := NewLastBlockStatsCollector(c.client, ch)
+		col.knownHash = c.tipHash
+
+		return col, nil
 	case CollectorTransactionPool:
-		return NewTransactionPoolCollector(c.client, ch), nil
+		col := NewTransactionPoolCollector(c.client, ch)
+		col.full = c.txPoolFull
+
+		return col, nil
 	case CollectorRPC:
 		return NewRPCCollector(c.client, ch), nil
 	case CollectorNet:

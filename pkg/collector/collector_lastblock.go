@@ -14,6 +14,10 @@ type LastBlockStatsCollector struct {
 	client   *daemon.Client
 	metricsC chan<- prometheus.Metric
 
+	// knownHash, when set, is get_info's top_block_hash. It skips
+	// get_last_block_header; get_block still runs when the hash is new.
+	knownHash string
+
 	txns     []*daemon.TransactionJSON
 	txnSizes []int
 	header   daemon.BlockHeader
@@ -56,12 +60,10 @@ func (c *LastBlockStatsCollector) Collect(ctx context.Context) error {
 }
 
 func (c *LastBlockStatsCollector) fetchData(ctx context.Context) error {
-	lastBlockHeaderResp, err := c.client.GetLastBlockHeader(ctx)
+	lastBlockHash, err := c.tipHash(ctx)
 	if err != nil {
-		return fmt.Errorf("get last block header: %w", err)
+		return err
 	}
-
-	lastBlockHash := lastBlockHeaderResp.BlockHeader.Hash
 
 	params := daemon.GetBlockRequestParameters{
 		Hash: lastBlockHash,
@@ -96,6 +98,22 @@ func (c *LastBlockStatsCollector) fetchData(ctx context.Context) error {
 	c.header = blockResp.BlockHeader
 
 	return nil
+}
+
+// tipHash prefers the hash already learned from get_info and otherwise asks
+// get_last_block_header. get_block and get_transactions are the expensive calls
+// and are skipped by the parent collector when this hash is unchanged.
+func (c *LastBlockStatsCollector) tipHash(ctx context.Context) (string, error) {
+	if c.knownHash != "" {
+		return c.knownHash, nil
+	}
+
+	header, err := c.client.GetLastBlockHeader(ctx)
+	if err != nil {
+		return "", fmt.Errorf("get last block header: %w", err)
+	}
+
+	return header.BlockHeader.Hash, nil
 }
 
 func (c *LastBlockStatsCollector) collectBlockSize() {

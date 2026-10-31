@@ -45,6 +45,20 @@ func TestCollectorIntervals(t *testing.T) {
 	}
 }
 
+func TestTransactionPoolFullDefaultsOff(t *testing.T) {
+	t.Parallel()
+
+	c, _ := executeCommand(t)
+	if c.colTransactionPoolFull {
+		t.Fatal("full transaction pool should be opt-in")
+	}
+
+	enabled, _ := executeCommand(t, "--collector.transaction_pool.full")
+	if !enabled.colTransactionPoolFull {
+		t.Fatal("--collector.transaction_pool.full did not enable the full pool")
+	}
+}
+
 func TestCollectorFlagDefaultsEnabled(t *testing.T) {
 	t.Parallel()
 

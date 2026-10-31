@@ -16,6 +16,10 @@ type TransactionPoolCollector struct {
 	client   *daemon.Client
 	metricsC chan<- prometheus.Metric
 
+	// full enables get_transaction_pool. The default stats call is enough for
+	// the aggregate series; the per-transaction distributions need the pool.
+	full bool
+
 	txns  []*daemon.TransactionJSON
 	pool  *daemon.GetTransactionPoolResult
 	stats *daemon.GetTransactionPoolStatsResult
@@ -42,16 +46,21 @@ func (c *TransactionPoolCollector) Collect(ctx context.Context) error {
 		return fmt.Errorf("fetch data: %w", err)
 	}
 
-	c.collectSpentKeyImages()
 	c.collectSize()
-	c.collectTransactionsSize()
 	c.collectTransactionsCount()
 	c.collectTransactionsFee()
+	c.collectWeirdCases()
+
+	if !c.full {
+		return nil
+	}
+
+	c.collectSpentKeyImages()
+	c.collectTransactionsSize()
 	c.collectTransactionsFeePerKb()
 	c.collectTransactionsInputs()
 	c.collectTransactionsOutputs()
 	c.collectTransactionsAgeDistribution()
-	c.collectWeirdCases()
 
 	return nil
 }
@@ -62,12 +71,16 @@ func (c *TransactionPoolCollector) fetchData(ctx context.Context) error {
 		return fmt.Errorf("get transactionpool stats: %w", err)
 	}
 
+	c.stats = stats
+	if !c.full {
+		return nil
+	}
+
 	pool, err := c.client.GetTransactionPool(ctx)
 	if err != nil {
 		return fmt.Errorf("get transaction pool: %w", err)
 	}
 
-	c.stats = stats
 	c.pool = pool
 
 	c.txns = make([]*daemon.TransactionJSON, len(pool.Transactions))
@@ -96,7 +109,7 @@ func (c *TransactionPoolCollector) collectTransactionsCount() {
 	c.metricsC <- prometheus.MustNewConstMetric(
 		descTxPoolTransactions,
 		prometheus.GaugeValue,
-		float64(len(c.pool.Transactions)),
+		float64(c.stats.PoolStats.TxsTotal),
 	)
 }
 

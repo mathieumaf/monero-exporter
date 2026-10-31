@@ -14,6 +14,10 @@ type OverallCollector struct {
 	client   *daemon.Client
 	metricsC chan<- prometheus.Metric
 
+	// onInfo, when set, receives a successful get_info result so later
+	// collectors can reuse top_block_hash without another RPC.
+	onInfo func(*daemon.GetInfoResult)
+
 	info *daemon.GetInfoResult
 }
 
@@ -50,6 +54,9 @@ func (c *OverallCollector) fetchData(ctx context.Context) error {
 	}
 
 	c.info = res
+	if c.onInfo != nil {
+		c.onInfo(res)
+	}
 
 	return nil
 }

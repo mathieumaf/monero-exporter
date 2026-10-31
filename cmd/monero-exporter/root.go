@@ -43,6 +43,7 @@ type command struct {
 	colLastBlockInterval    time.Duration
 	colTransactionPool      bool
 	colTransactionPoolEvery time.Duration
+	colTransactionPoolFull  bool
 	colRPC                  bool
 	colRPCInterval          time.Duration
 	colNet                  bool
@@ -97,6 +98,9 @@ func (c *command) Cmd() *cobra.Command {
 			"scrape success from RPC latency (e.g. during sync)")
 
 	c.addCollectorFlags(cmd)
+	cmd.Flags().BoolVar(&c.colTransactionPoolFull, "collector.transaction_pool.full",
+		false, "fetch the full transaction pool (get_transaction_pool) for "+
+			"per-transaction distributions; expensive")
 
 	return cmd
 }
@@ -293,6 +297,7 @@ func (c *command) collectorFlagOptions() []collector.Option {
 		collector.WithCollectorInterval(collector.CollectorLastBlock, c.colLastBlockInterval),
 		collector.WithCollectorEnabled(collector.CollectorTransactionPool, c.colTransactionPool),
 		collector.WithCollectorInterval(collector.CollectorTransactionPool, c.colTransactionPoolEvery),
+		collector.WithTransactionPoolFull(c.colTransactionPoolFull),
 		collector.WithCollectorEnabled(collector.CollectorRPC, c.colRPC),
 		collector.WithCollectorInterval(collector.CollectorRPC, c.colRPCInterval),
 		collector.WithCollectorEnabled(collector.CollectorNet, c.colNet),
