@@ -15,10 +15,13 @@ import (
 	"github.com/mathieumaf/go-monero/pkg/rpc/daemon"
 )
 
-// collectTimeout bounds how long a single collection cycle may take, so a hung
-// RPC connection can never block a scrape (live mode) or freeze the background
-// refresh loop (cache mode) indefinitely.
-const collectTimeout = 2 * time.Minute
+// DefaultCollectTimeout bounds how long a single collection cycle may take, so
+// a hung RPC connection can never block a scrape (live mode) or freeze the
+// background refresh loop (cache mode) indefinitely.
+//
+// It is the historical hard-coded budget and the default of the CLI's
+// --collect-timeout flag. WithCollectTimeout overrides it per collector.
+const DefaultCollectTimeout = 2 * time.Minute
 
 var (
 	upDesc = prometheus.NewDesc(
@@ -62,6 +65,10 @@ type Collector struct {
 	// on each scrape.
 	refreshInterval time.Duration
 
+	// collectTimeout bounds one collection cycle. Zero means
+	// DefaultCollectTimeout.
+	collectTimeout time.Duration
+
 	// mu guards cached, the last snapshot served in cache mode.
 	mu     sync.RWMutex
 	cached []prometheus.Metric
@@ -96,6 +103,23 @@ func WithRefreshInterval(v time.Duration) func(c *Collector) {
 	}
 }
 
+// WithCollectTimeout overrides DefaultCollectTimeout for one collection cycle
+// (a live scrape, or one iteration of the background refresh loop). A
+// non-positive value keeps the default.
+func WithCollectTimeout(v time.Duration) func(c *Collector) {
+	return func(c *Collector) {
+		c.collectTimeout = v
+	}
+}
+
+// WithLogger overrides the collector logger. When unset, Register builds a
+// production zap logger at info level.
+func WithLogger(log logr.Logger) func(c *Collector) {
+	return func(c *Collector) {
+		c.log = log
+	}
+}
+
 func defaultCountryMapper(_ net.IP) (string, error) {
 	return "unknown", nil
 }
@@ -106,19 +130,27 @@ func defaultCountryMapper(_ net.IP) (string, error) {
 // When a refresh interval is configured (cache mode), it also starts the
 // background refresh loop, which runs until ctx is cancelled.
 func Register(ctx context.Context, client *daemon.Client, opts ...Option) error {
-	defaultLogger, err := zap.NewDevelopment()
-	if err != nil {
-		return fmt.Errorf("zap new development: %w", err)
-	}
-
 	c := &Collector{
-		client:        client,
-		countryMapper: defaultCountryMapper,
-		log:           zapr.NewLogger(defaultLogger),
+		client:         client,
+		countryMapper:  defaultCountryMapper,
+		collectTimeout: DefaultCollectTimeout,
 	}
 
 	for _, opt := range opts {
 		opt(c)
+	}
+
+	if c.collectTimeout <= 0 {
+		c.collectTimeout = DefaultCollectTimeout
+	}
+
+	if c.log.GetSink() == nil {
+		defaultLogger, err := zap.NewProduction()
+		if err != nil {
+			return fmt.Errorf("zap new production: %w", err)
+		}
+
+		c.log = zapr.NewLogger(defaultLogger)
 	}
 
 	if err := prometheus.Register(c); err != nil {
@@ -163,7 +195,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), collectTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.collectTimeout)
 	defer cancel()
 
 	for _, m := range c.gather(ctx) {
@@ -192,7 +224,7 @@ func (c *Collector) refreshLoop(ctx context.Context) {
 }
 
 func (c *Collector) refreshOnce(ctx context.Context) {
-	cycleCtx, cancel := context.WithTimeout(ctx, collectTimeout)
+	cycleCtx, cancel := context.WithTimeout(ctx, c.collectTimeout)
 	defer cancel()
 
 	metrics := c.gather(cycleCtx)
