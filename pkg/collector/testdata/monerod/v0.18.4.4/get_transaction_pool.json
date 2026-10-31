@@ -1,0 +1,59 @@
+{
+  "credits": 0,
+  "spent_key_images": [
+    {
+      "id_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "txs_hashes": [
+        "3333333333333333333333333333333333333333333333333333333333333333"
+      ]
+    },
+    {
+      "id_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "txs_hashes": [
+        "3333333333333333333333333333333333333333333333333333333333333333",
+        "4444444444444444444444444444444444444444444444444444444444444444"
+      ]
+    }
+  ],
+  "status": "OK",
+  "top_hash": "",
+  "transactions": [
+    {
+      "blob_size": 1024,
+      "do_not_relay": false,
+      "double_spend_seen": false,
+      "fee": 10000000000,
+      "id_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+      "kept_by_block": false,
+      "last_failed_height": 0,
+      "last_failed_id_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "last_relayed_time": 1768478280,
+      "max_used_block_height": 3500000,
+      "max_used_block_id_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "receive_time": 1768478280,
+      "relayed": true,
+      "tx_blob": "abababababababababababababababab",
+      "tx_json": "{\"version\":2,\"unlock_time\":0,\"vin\":[{\"key\":{\"amount\":0,\"key_offsets\":[10,20],\"k_image\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}},{\"key\":{\"amount\":0,\"key_offsets\":[11,21],\"k_image\":\"eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\"}}],\"vout\":[{\"amount\":0,\"target\":{\"tagged_key\":{\"key\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"view_tag\":\"00\"}}},{\"amount\":0,\"target\":{\"tagged_key\":{\"key\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"view_tag\":\"01\"}}}],\"extra\":[1,2,3,4],\"rct_signatures\":{\"type\":6,\"txnFee\":10000000000,\"ecdhInfo\":[{\"amount\":\"00\"}],\"outPk\":[\"ff\"]}}",
+      "weight": 1024
+    },
+    {
+      "blob_size": 2048,
+      "do_not_relay": false,
+      "double_spend_seen": false,
+      "fee": 4000000000,
+      "id_hash": "4444444444444444444444444444444444444444444444444444444444444444",
+      "kept_by_block": false,
+      "last_failed_height": 0,
+      "last_failed_id_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+      "last_relayed_time": 1768477800,
+      "max_used_block_height": 3500000,
+      "max_used_block_id_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "receive_time": 1768477800,
+      "relayed": true,
+      "tx_blob": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+      "tx_json": "{\"version\":2,\"unlock_time\":0,\"vin\":[{\"key\":{\"amount\":0,\"key_offsets\":[10,20],\"k_image\":\"dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\"}}],\"vout\":[{\"amount\":0,\"target\":{\"tagged_key\":{\"key\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"view_tag\":\"00\"}}},{\"amount\":0,\"target\":{\"tagged_key\":{\"key\":\"9999999999999999999999999999999999999999999999999999999999999999\",\"view_tag\":\"01\"}}},{\"amount\":0,\"target\":{\"tagged_key\":{\"key\":\"ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\",\"view_tag\":\"02\"}}}],\"extra\":[1,2,3,4],\"rct_signatures\":{\"type\":6,\"txnFee\":4000000000,\"ecdhInfo\":[{\"amount\":\"00\"}],\"outPk\":[\"ff\"]}}",
+      "weight": 2048
+    }
+  ],
+  "untrusted": false
+}

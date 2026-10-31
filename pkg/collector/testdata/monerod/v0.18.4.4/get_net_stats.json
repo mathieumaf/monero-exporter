@@ -1,0 +1,9 @@
+{
+  "start_time": 1768392000,
+  "status": "OK",
+  "total_bytes_in": 111111111,
+  "total_bytes_out": 222222222,
+  "total_packets_in": 333333,
+  "total_packets_out": 444444,
+  "untrusted": false
+}

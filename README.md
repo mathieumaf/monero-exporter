@@ -11,6 +11,7 @@
 - [Installation](#installation)
 - [Grafana](#grafana)
 - [Example](#example)
+- [Monerod compatibility](#monerod-compatibility)
 - [Metrics](#metrics)
   - [Last block](#last-block)
   - [Transaction pool](#transaction-pool)
@@ -226,6 +227,40 @@ docker-compose logs -f
 ```
 
 
+## Monerod compatibility
+
+The exporter is tested against the daemon RPC shape of **monerod 0.18.x**.
+Fixtures in `pkg/collector/testdata/monerod/v0.18.4.4/` follow the JSON
+**0.18.4.4** returns for every method the exporter calls: `get_info`,
+`get_last_block_header`, `get_block`, `get_transactions`,
+`get_transaction_pool`, `get_transaction_pool_stats`, `rpc_access_tracking`,
+`get_net_stats`, `get_connections` and `get_peer_list`.
+
+| monerod | fixture coverage |
+| --- | --- |
+| 0.18.0.0 – 0.18.3.4 | same methods; `busy_syncing` and the `wide_*` difficulty fields on `get_info` arrived during the series and are left at zero when a daemon omits them |
+| 0.18.4.0 – 0.18.4.6 | response shape of the committed fixtures, pinned to 0.18.4.4 |
+| 0.18.5.0 – 0.18.5.4 | same methods and the same fields the exporter reads |
+
+IP addresses use the [RFC 5737] documentation ranges. Peer ids, hostnames and
+hashes are placeholders. Transaction blobs and signatures are shortened; sizes,
+fees and input/output counts — the fields the exporter reads — are set in the
+fixtures.
+
+Regenerate the golden `/metrics` exposition and the `promtool` finding list
+after a metric change:
+
+```bash
+go test ./pkg/collector -update
+# or
+UPDATE_GOLDEN=1 go test ./pkg/collector
+```
+
+`promtool check metrics` checks that file in CI. The current finding list lives
+in `pkg/collector/testdata/promtool_baseline.txt`; CI fails when the list
+changes.
+
+
 ## Metrics
 
 Below you'll find the description of the metrics exposed by `monero-exporter`
@@ -400,3 +435,4 @@ only tip this fork is after. ⭐ the repo if it earned its keep.
 [promql]: https://prometheus.io/docs/prometheus/latest/querying/basics/
 [releases page]: https://github.com/mathieumaf/monero-exporter/releases
 [docker-compose]: https://docs.docker.com/compose/
+[RFC 5737]: https://www.rfc-editor.org/rfc/rfc5737

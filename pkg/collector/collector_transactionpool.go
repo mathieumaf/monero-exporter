@@ -198,7 +198,7 @@ func (c *TransactionPoolCollector) collectTransactionsOutputs() {
 }
 
 func (c *TransactionPoolCollector) collectTransactionsAgeDistribution() {
-	now := time.Now()
+	now := clockNow()
 
 	summary := NewSummary()
 	for _, txn := range c.pool.Transactions {
