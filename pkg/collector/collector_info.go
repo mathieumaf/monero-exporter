@@ -29,7 +29,7 @@ func NewOverallCollector(
 }
 
 func (c *OverallCollector) Name() string {
-	return collectorOverall
+	return CollectorOverall
 }
 
 func (c *OverallCollector) Collect(ctx context.Context) error {
@@ -137,6 +137,35 @@ func (c *OverallCollector) collect() {
 		descInfoFreeSpace,
 		prometheus.GaugeValue,
 		float64(c.info.FreeSpace),
+	)
+
+	// Connection and peer counts come from get_info so they stay present
+	// (including zeros) when the heavy get_connections / get_peer_list
+	// collectors are disabled. state=total is the aggregate; get_info has
+	// no per-state breakdown. The peerlist label stays "gray" (not "grey").
+	c.metricsC <- prometheus.MustNewConstMetric(
+		descConnCount,
+		prometheus.GaugeValue,
+		float64(c.info.IncomingConnectionsCount),
+		"in", "total",
+	)
+	c.metricsC <- prometheus.MustNewConstMetric(
+		descConnCount,
+		prometheus.GaugeValue,
+		float64(c.info.OutgoingConnectionsCount),
+		"out", "total",
+	)
+	c.metricsC <- prometheus.MustNewConstMetric(
+		descPeerCount,
+		prometheus.GaugeValue,
+		float64(c.info.WhitePeerlistSize),
+		"white",
+	)
+	c.metricsC <- prometheus.MustNewConstMetric(
+		descPeerCount,
+		prometheus.GaugeValue,
+		float64(c.info.GreyPeerlistSize),
+		"gray",
 	)
 }
 

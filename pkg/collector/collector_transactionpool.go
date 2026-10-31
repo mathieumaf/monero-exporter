@@ -33,7 +33,7 @@ func NewTransactionPoolCollector(
 }
 
 func (c *TransactionPoolCollector) Name() string {
-	return collectorTransactionPool
+	return CollectorTransactionPool
 }
 
 func (c *TransactionPoolCollector) Collect(ctx context.Context) error {

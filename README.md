@@ -63,6 +63,10 @@ Flags:
       --refresh-interval duration    when > 0, collect from monerod in the 
                                      background on this interval and serve a 
                                      cached snapshot per scrape (default 0 = live)
+      --collector.<name>             enable a collector (default: all enabled)
+      --no-collector.<name>          disable a collector
+      --collector.<name>.interval    minimum time between runs of that collector
+                                     (0 = every cycle; not valid for overall)
       --telemetry-path string        endpoint at which prometheus metrics are 
                                      served (default "/metrics")
       --tls-skip-verify              skip TLS certificate verification when 
@@ -84,6 +88,43 @@ snapshot to every scrape instantly, so scrapes never time out regardless of how
 slow or unreachable monerod is. Because the scrape then always succeeds, watch
 the dedicated health metric **`monero_up`** (`0` when the last refresh could not
 reach monerod) instead of Prometheus' built-in `up` for alerting.
+
+### Collectors
+
+Every collector is enabled by default, which is the same set the exporter has
+always scraped. Turn one off with `--no-collector.<name>`, or run it less often
+than the others with `--collector.<name>.interval`.
+
+| name | flag | what it calls |
+| ---- | ---- | ------------- |
+| overall | `--collector.overall` | `get_info` (node info, plus peer and connection counts). No interval flag: it follows `--refresh-interval`. |
+| lastblock | `--collector.lastblock` | last block header, block, and transactions |
+| transaction_pool | `--collector.transaction_pool` | transaction pool |
+| rpc | `--collector.rpc` | `rpc_access_tracking` |
+| net | `--collector.net` | `get_net_stats` |
+| connections | `--collector.connections` | `get_connections` (age, height, and rate distributions only) |
+| peerlist | `--collector.peerlist` | `get_peer_list` (last-seen ages only) |
+
+`get_peer_list` is the expensive call: on a public node it can return about a
+megabyte and take tens of seconds, which is enough to make a full cycle longer
+than the scrape or refresh interval. On slow storage, disable it or stretch it
+out:
+
+```console
+# counts stay; only the last-seen distribution is dropped
+monero-exporter --no-collector.peerlist
+
+# or refresh the peer list every 10 minutes
+monero-exporter --refresh-interval=60s --collector.peerlist.interval=10m
+```
+
+Connection counts (`monero_p2p_connections{type="in"|"out",state="total"}`) and
+peer counts (`monero_peerlist{type="white"|"gray"}`) are read from `get_info`.
+Both series are always exported, including when the count is `0`, and they do
+not require `get_connections` or `get_peer_list`. `state="total"` is the
+aggregate reported by the daemon; per-connection state is not a separate
+series. Disabling `--collector.overall` also drops these counts, because they
+come from that same `get_info` call.
 
 ### RPC authentication
 
@@ -320,7 +361,7 @@ connected to the node (thus, transmitting and receiving data to/from our node).
 
 | name | description |
 | ---- | ----------- |
-| monero_p2p_connections | number of connections to/from this node |
+| monero_p2p_connections | number of connections to/from this node (`type` `in` or `out`, `state` `total`), from `get_info`, including zeros |
 | monero_p2p_connections_age | distribution of age of the connections we have |
 | monero_p2p_connections_height | distribution the height of the peers connected to/from us |
 | monero_p2p_connections_rx_rate_bps | distribution of data receive rate in bytes/s |
@@ -335,8 +376,8 @@ called peerlists, divided in anchor, white, and gray.
 
 | name | description |
 | ---- | ----------- |
-| monero_peerlist | number of node entries in the peerlist |
-| monero_peerlist_lastseen | distribution of when our peers have been seen |
+| monero_peerlist | number of node entries in the peerlist (`type` `white` or `gray`), from `get_info`, including zeros |
+| monero_peerlist_lastseen | distribution of when white-list peers have been seen (requires `--collector.peerlist`) |
 
 
 ### Net Stats

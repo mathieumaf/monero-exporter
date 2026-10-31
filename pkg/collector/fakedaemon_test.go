@@ -51,6 +51,34 @@ func (f *fakeDaemon) setJSON(method string, v any) {
 	f.mu.Unlock()
 }
 
+func (f *fakeDaemon) jsonCallsFor(method string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	n := 0
+	for _, call := range f.jsonCalls {
+		if call == method {
+			n++
+		}
+	}
+
+	return n
+}
+
+func (f *fakeDaemon) rawCallsFor(endpoint string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	n := 0
+	for _, call := range f.rawCalls {
+		if call == endpoint {
+			n++
+		}
+	}
+
+	return n
+}
+
 func (f *fakeDaemon) failRaw(endpoint string, err error) {
 	f.mu.Lock()
 	f.rawErr[endpoint] = err
@@ -126,7 +154,14 @@ const (
 	fixtureTxHash = "tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1"
 
 	jsonHeight      = "height"
+	jsonTopHash     = "top_block_hash"
+	jsonWhitePeers  = "white_peerlist_size"
+	jsonGreyPeers   = "grey_peerlist_size"
 	jsonConnections = "connections"
+
+	labelWhite = "white"
+	labelOut   = "out"
+	labelTotal = "total"
 )
 
 // newFixtureDaemon returns a daemon whose responses let every collector emit
@@ -167,11 +202,11 @@ func (f *fakeDaemon) setChainFixtures() {
 	f.setJSON("get_info", map[string]any{
 		jsonHeight:                   fixtureHeight,
 		"target_height":              0,
-		"top_block_hash":             fixtureTop,
+		jsonTopHash:                  fixtureTop,
 		"incoming_connections_count": 1,
 		"outgoing_connections_count": 0,
-		"white_peerlist_size":        2,
-		"grey_peerlist_size":         1,
+		jsonWhitePeers:               2,
+		jsonGreyPeers:                1,
 		"mainnet":                    true,
 		"synchronized":               true,
 		"start_time":                 1_700_000_000,

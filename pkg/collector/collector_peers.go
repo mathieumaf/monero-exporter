@@ -14,7 +14,6 @@ type PeersCollector struct {
 	client   *daemon.Client
 	metricsC chan<- prometheus.Metric
 
-	graylist  []daemon.Peer
 	whitelist []daemon.Peer
 }
 
@@ -30,7 +29,7 @@ func NewPeersCollector(
 }
 
 func (c *PeersCollector) Name() string {
-	return collectorPeerlist
+	return CollectorPeerlist
 }
 
 func (c *PeersCollector) Collect(ctx context.Context) error {
@@ -39,7 +38,6 @@ func (c *PeersCollector) Collect(ctx context.Context) error {
 		return fmt.Errorf("fetch data: %w", err)
 	}
 
-	c.collectPeersCount()
 	c.collectPeersLastSeen()
 
 	return nil
@@ -51,26 +49,9 @@ func (c *PeersCollector) fetchData(ctx context.Context) error {
 		return fmt.Errorf("get peerlist: %w", err)
 	}
 
-	c.graylist = resp.GrayList
 	c.whitelist = resp.WhiteList
 
 	return nil
-}
-
-func (c *PeersCollector) collectPeersCount() {
-	c.metricsC <- prometheus.MustNewConstMetric(
-		descPeerCount,
-		prometheus.GaugeValue,
-		float64(len(c.whitelist)),
-		"white",
-	)
-
-	c.metricsC <- prometheus.MustNewConstMetric(
-		descPeerCount,
-		prometheus.GaugeValue,
-		float64(len(c.graylist)),
-		"gray",
-	)
 }
 
 func (c *PeersCollector) collectPeersLastSeen() {

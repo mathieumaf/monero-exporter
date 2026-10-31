@@ -24,25 +24,25 @@ const collectTimeout = 2 * time.Minute
 // Collector names match the CustomCollector.Name values and the
 // --collector.<name> flags.
 const (
-	collectorOverall         = "overall"
-	collectorLastBlock       = "lastblock"
-	collectorTransactionPool = "transaction_pool"
-	collectorRPC             = "rpc"
-	collectorNet             = "net"
-	collectorConnections     = "connections"
-	collectorPeerlist        = "peerlist"
+	CollectorOverall         = "overall"
+	CollectorLastBlock       = "lastblock"
+	CollectorTransactionPool = "transaction_pool"
+	CollectorRPC             = "rpc"
+	CollectorNet             = "net"
+	CollectorConnections     = "connections"
+	CollectorPeerlist        = "peerlist"
 )
 
 // collectorOrder is the sequential collection order. get_info (overall) stays
 // first so it is never starved by the heavier peer and connection sweeps.
 var collectorOrder = []string{
-	collectorOverall,
-	collectorLastBlock,
-	collectorTransactionPool,
-	collectorRPC,
-	collectorNet,
-	collectorConnections,
-	collectorPeerlist,
+	CollectorOverall,
+	CollectorLastBlock,
+	CollectorTransactionPool,
+	CollectorRPC,
+	CollectorNet,
+	CollectorConnections,
+	CollectorPeerlist,
 }
 
 var errUnknownCollector = errors.New("unknown collector")
@@ -74,15 +74,26 @@ type Collector struct {
 	// on each scrape.
 	refreshInterval time.Duration
 
+	// enabled overrides the default (every collector on). A missing name is
+	// enabled. intervals is the minimum time between runs; overall ignores it
+	// and follows refreshInterval. Zero means every cycle.
+	enabled   map[string]bool
+	intervals map[string]time.Duration
+
 	// mu guards cached, the last snapshot served in cache mode.
 	mu     sync.RWMutex
 	cached []prometheus.Metric
 
-	// collectMu serializes a collection cycle and guards lastGood.
+	// collectMu serializes a collection cycle and guards lastGood and lastRun.
 	collectMu sync.Mutex
 	// lastGood is the last successful sample set of each collector. A later
 	// failure keeps those series in the scrape instead of removing them.
 	lastGood map[string][]prometheus.Metric
+	// lastRun is when each collector last succeeded, for per-collector intervals.
+	lastRun map[string]time.Time
+
+	// now, when set, replaces time.Now for interval scheduling.
+	now func() time.Time
 
 	log logr.Logger
 }
@@ -118,6 +129,39 @@ func WithRefreshInterval(v time.Duration) func(c *Collector) {
 func WithLogger(l logr.Logger) func(c *Collector) {
 	return func(c *Collector) {
 		c.log = l
+	}
+}
+
+// WithCollectorEnabled turns a collector on or off. Collectors are enabled
+// unless this option disables them. Names are the Collector* constants.
+func WithCollectorEnabled(name string, enabled bool) Option {
+	return func(c *Collector) {
+		if c.enabled == nil {
+			c.enabled = map[string]bool{}
+		}
+
+		c.enabled[name] = enabled
+	}
+}
+
+// WithCollectorInterval sets the minimum time between successful runs of a
+// collector. Cached samples are served in between. The overall collector
+// ignores this and follows the global refresh interval. Zero collects every
+// cycle.
+func WithCollectorInterval(name string, interval time.Duration) Option {
+	return func(c *Collector) {
+		if c.intervals == nil {
+			c.intervals = map[string]time.Duration{}
+		}
+
+		c.intervals[name] = interval
+	}
+}
+
+// WithNow overrides the clock used for per-collector intervals.
+func WithNow(now func() time.Time) Option {
+	return func(c *Collector) {
+		c.now = now
 	}
 }
 
@@ -259,17 +303,14 @@ func (c *Collector) gather(ctx context.Context) []prometheus.Metric {
 	defer c.collectMu.Unlock()
 
 	start := time.Now()
+	now := c.currentTime()
 	ok := true
 	metrics := make([]prometheus.Metric, 0, 64)
 
 	for _, name := range collectorOrder {
-		got, err := c.collectOne(ctx, name)
-		if err != nil {
+		got, failed := c.runCollector(ctx, name, now)
+		if failed {
 			ok = false
-			c.log.Error(err, "collect", "collector", name)
-			got = c.lastGood[name]
-		} else {
-			c.storeGood(name, got)
 		}
 
 		metrics = append(metrics, got...)
@@ -286,6 +327,80 @@ func (c *Collector) gather(ctx context.Context) []prometheus.Metric {
 	)
 
 	return metrics
+}
+
+// runCollector executes one collector when it is enabled and due. A disabled
+// collector contributes nothing. A collector that is not due, or that fails
+// after a previous success, contributes its cached samples.
+func (c *Collector) runCollector(
+	ctx context.Context, name string, now time.Time,
+) ([]prometheus.Metric, bool) {
+	if !c.collectorEnabled(name) {
+		return nil, false
+	}
+
+	if !c.collectorDue(name, now) {
+		return c.lastGood[name], false
+	}
+
+	got, err := c.collectOne(ctx, name)
+	if err != nil {
+		c.log.Error(err, "collect", "collector", name)
+
+		return c.lastGood[name], true
+	}
+
+	c.storeGood(name, got)
+	c.markRun(name, now)
+
+	return got, false
+}
+
+func (c *Collector) collectorEnabled(name string) bool {
+	if c.enabled == nil {
+		return true
+	}
+
+	enabled, ok := c.enabled[name]
+	if !ok {
+		return true
+	}
+
+	return enabled
+}
+
+func (c *Collector) collectorDue(name string, now time.Time) bool {
+	if name == CollectorOverall {
+		return true
+	}
+
+	interval := c.intervals[name]
+	if interval <= 0 {
+		return true
+	}
+
+	last, ok := c.lastRun[name]
+	if !ok || last.IsZero() {
+		return true
+	}
+
+	return !now.Before(last.Add(interval))
+}
+
+func (c *Collector) markRun(name string, now time.Time) {
+	if c.lastRun == nil {
+		c.lastRun = make(map[string]time.Time, len(collectorOrder))
+	}
+
+	c.lastRun[name] = now
+}
+
+func (c *Collector) currentTime() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+
+	return time.Now()
 }
 
 // collectOne runs a single collector. The channel is drained on another
@@ -322,19 +437,19 @@ func (c *Collector) newCollector(
 	name string, ch chan<- prometheus.Metric,
 ) (CustomCollector, error) {
 	switch name {
-	case collectorOverall:
+	case CollectorOverall:
 		return NewOverallCollector(c.client, ch), nil
-	case collectorLastBlock:
+	case CollectorLastBlock:
 		return NewLastBlockStatsCollector(c.client, ch), nil
-	case collectorTransactionPool:
+	case CollectorTransactionPool:
 		return NewTransactionPoolCollector(c.client, ch), nil
-	case collectorRPC:
+	case CollectorRPC:
 		return NewRPCCollector(c.client, ch), nil
-	case collectorNet:
+	case CollectorNet:
 		return NewNetStatsCollector(c.client, ch), nil
-	case collectorConnections:
+	case CollectorConnections:
 		return NewConnectionsCollector(c.client, ch), nil
-	case collectorPeerlist:
+	case CollectorPeerlist:
 		return NewPeersCollector(c.client, ch), nil
 	default:
 		return nil, fmt.Errorf("%s: %w", name, errUnknownCollector)

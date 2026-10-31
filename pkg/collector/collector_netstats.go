@@ -28,7 +28,7 @@ func NewNetStatsCollector(
 }
 
 func (c *NetStatsCollector) Name() string {
-	return collectorNet
+	return CollectorNet
 }
 
 func (c *NetStatsCollector) Collect(ctx context.Context) error {

@@ -28,7 +28,7 @@ func NewConnectionsCollector(
 }
 
 func (c *ConnectionsCollector) Name() string {
-	return collectorConnections
+	return CollectorConnections
 }
 
 func (c *ConnectionsCollector) Collect(ctx context.Context) error {
@@ -37,7 +37,6 @@ func (c *ConnectionsCollector) Collect(ctx context.Context) error {
 		return fmt.Errorf("fetch data: %w", err)
 	}
 
-	c.collectConnectionsCount()
 	c.collectHeightDistribution()
 	c.collectDataRates()
 	c.collectConnectionAges()
@@ -94,33 +93,6 @@ func (c *ConnectionsCollector) collectHeightDistribution() {
 		descConnHeight,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
-}
-
-func (c *ConnectionsCollector) collectConnectionsCount() {
-	type key struct {
-		ttype string
-		state string
-	}
-
-	counters := map[key]float64{}
-
-	for _, conn := range c.connections.Connections {
-		ttype := "in"
-		if !conn.Incoming {
-			ttype = "out"
-		}
-
-		counters[key{ttype, conn.State}]++
-	}
-
-	for k, v := range counters {
-		c.metricsC <- prometheus.MustNewConstMetric(
-			descConnCount,
-			prometheus.GaugeValue,
-			v,
-			k.ttype, k.state,
-		)
-	}
 }
 
 func (c *ConnectionsCollector) fetchData(ctx context.Context) error {

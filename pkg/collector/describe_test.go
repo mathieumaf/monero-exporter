@@ -40,12 +40,16 @@ func TestDescribeRegistersCheckedCollector(t *testing.T) {
 	assertGauge(t, families, "monero_info_height", nil, 12345)
 	assertGauge(t, families, "monero_net_rx_bytes", nil, 111)
 	assertGauge(t, families, "monero_net_tx_bytes", nil, 222)
-	assertGauge(t, families, "monero_peerlist", map[string]string{labelType: "white"}, 2)
+	assertGauge(t, families, "monero_peerlist", map[string]string{labelType: labelWhite}, 2)
 	assertGauge(t, families, "monero_peerlist", map[string]string{labelType: "gray"}, 1)
 	assertGauge(t, families, "monero_p2p_connections", map[string]string{
 		labelType:  "in",
-		labelState: "normal",
+		labelState: labelTotal,
 	}, 1)
+	assertGauge(t, families, "monero_p2p_connections", map[string]string{
+		labelType:  labelOut,
+		labelState: labelTotal,
+	}, 0)
 	assertGauge(t, families, "monero_rpc_hits_total", map[string]string{
 		"method": "get_info",
 	}, 4)

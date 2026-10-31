@@ -82,13 +82,18 @@ func TestFailingCollectorKeepsLastSeries(t *testing.T) {
 	assertGauge(t, first, "monero_info_height", nil, fixtureHeight)
 
 	f.failRaw("/get_net_stats", errFake)
-	f.setJSON("get_info", map[string]any{"height": 50, "top_block_hash": fixtureTop})
+	f.setJSON("get_info", map[string]any{
+		jsonHeight:     50,
+		jsonTopHash:    fixtureTop,
+		jsonWhitePeers: 2,
+		jsonGreyPeers:  1,
+	})
 
 	second := mustGather(t, reg)
 	assertGauge(t, second, "monero_net_tx_bytes", nil, 222)
 	assertGauge(t, second, "monero_net_rx_bytes", nil, 111)
 	assertGauge(t, second, "monero_info_height", nil, 50)
-	assertGauge(t, second, "monero_peerlist", map[string]string{labelType: "white"}, 2)
+	assertGauge(t, second, "monero_peerlist", map[string]string{labelType: labelWhite}, 2)
 }
 
 func connectionFixture(incoming bool, state string, live, recv, send uint64) map[string]any {
