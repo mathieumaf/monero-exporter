@@ -14,6 +14,10 @@ type LastBlockStatsCollector struct {
 	client   *daemon.Client
 	metricsC chan<- prometheus.Metric
 
+	// knownHash, when set, is get_info's top_block_hash. It skips
+	// get_last_block_header; get_block still runs when the hash is new.
+	knownHash string
+
 	txns     []*daemon.TransactionJSON
 	txnSizes []int
 	header   daemon.BlockHeader
@@ -31,7 +35,7 @@ func NewLastBlockStatsCollector(
 }
 
 func (c *LastBlockStatsCollector) Name() string {
-	return "lastblock"
+	return CollectorLastBlock
 }
 
 func (c *LastBlockStatsCollector) Collect(ctx context.Context) error {
@@ -56,12 +60,10 @@ func (c *LastBlockStatsCollector) Collect(ctx context.Context) error {
 }
 
 func (c *LastBlockStatsCollector) fetchData(ctx context.Context) error {
-	lastBlockHeaderResp, err := c.client.GetLastBlockHeader(ctx)
+	lastBlockHash, err := c.tipHash(ctx)
 	if err != nil {
-		return fmt.Errorf("get last block header: %w", err)
+		return err
 	}
-
-	lastBlockHash := lastBlockHeaderResp.BlockHeader.Hash
 
 	params := daemon.GetBlockRequestParameters{
 		Hash: lastBlockHash,
@@ -98,72 +100,57 @@ func (c *LastBlockStatsCollector) fetchData(ctx context.Context) error {
 	return nil
 }
 
-func (c *LastBlockStatsCollector) collectBlockSize() {
-	desc := prometheus.NewDesc(
-		"monero_lastblock_size_bytes",
-		"total size of the last block",
-		nil, nil,
-	)
+// tipHash prefers the hash already learned from get_info and otherwise asks
+// get_last_block_header. get_block and get_transactions are the expensive calls
+// and are skipped by the parent collector when this hash is unchanged.
+func (c *LastBlockStatsCollector) tipHash(ctx context.Context) (string, error) {
+	if c.knownHash != "" {
+		return c.knownHash, nil
+	}
 
+	header, err := c.client.GetLastBlockHeader(ctx)
+	if err != nil {
+		return "", fmt.Errorf("get last block header: %w", err)
+	}
+
+	return header.BlockHeader.Hash, nil
+}
+
+func (c *LastBlockStatsCollector) collectBlockSize() {
 	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
+		descLastBlockSize,
 		prometheus.GaugeValue,
 		float64(c.header.BlockSize),
 	)
 }
 
 func (c *LastBlockStatsCollector) collectDifficulty() {
-	desc := prometheus.NewDesc(
-		"monero_lastblock_difficulty",
-		"difficulty used for the last block",
-		nil, nil,
-	)
-
 	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
+		descLastBlockDifficulty,
 		prometheus.GaugeValue,
 		float64(c.header.Difficulty),
 	)
 }
 
 func (c *LastBlockStatsCollector) collectFees() {
-	desc := prometheus.NewDesc(
-		"monero_lastblock_fees_monero",
-		"total amount of fees included in this block",
-		nil, nil,
-	)
-
 	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
+		descLastBlockFees,
 		prometheus.GaugeValue,
 		float64(c.gatherFees(c.txns))/constant.XMR,
 	)
 }
 
 func (c *LastBlockStatsCollector) collectHeight() {
-	desc := prometheus.NewDesc(
-		"monero_lastblock_height",
-		"height of the last block",
-		nil, nil,
-	)
-
 	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
+		descLastBlockHeight,
 		prometheus.GaugeValue,
 		float64(c.header.Height),
 	)
 }
 
 func (c *LastBlockStatsCollector) collectReward() {
-	desc := prometheus.NewDesc(
-		"monero_lastblock_reward_monero",
-		"total amount of rewards granted in the last block "+
-			"(subsidy + fees)",
-		nil, nil,
-	)
-
 	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
+		descLastBlockReward,
 		prometheus.GaugeValue,
 		float64(c.header.Reward)/constant.XMR,
 	)
@@ -174,28 +161,16 @@ func (c *LastBlockStatsCollector) collectSubsidy() {
 	fees := float64(c.gatherFees(c.txns))
 	subsidy := (totalReward - fees) / constant.XMR
 
-	desc := prometheus.NewDesc(
-		"monero_lastblock_subsidy_monero",
-		"newly minted monero for this block",
-		nil, nil,
-	)
-
 	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
+		descLastBlockSubsidy,
 		prometheus.GaugeValue,
 		subsidy,
 	)
 }
 
 func (c *LastBlockStatsCollector) collectTransactionsCount() {
-	desc := prometheus.NewDesc(
-		"monero_lastblock_transactions",
-		"number of transactions seen in the last block",
-		nil, nil,
-	)
-
 	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
+		descLastBlockTransactions,
 		prometheus.GaugeValue,
 		float64(c.header.NumTxes),
 	)
@@ -211,11 +186,7 @@ func (c *LastBlockStatsCollector) collectTransactionsFeePerKb() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_lastblock_fees_micronero_per_kb",
-			"distribution of the feeperkb utilized for txns",
-			nil, nil,
-		),
+		descLastBlockFeePerKB,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
 }
@@ -227,11 +198,7 @@ func (c *LastBlockStatsCollector) collectTransactionsSize() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_lastblock_transactions_size_bytes",
-			"distribution of the size of the transactions included",
-			nil, nil,
-		),
+		descLastBlockTxSize,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
 }
@@ -243,11 +210,7 @@ func (c *LastBlockStatsCollector) collectTransactionsInputs() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_lastblock_transactions_inputs",
-			"distribution of inputs in the last block",
-			nil, nil,
-		),
+		descLastBlockTxInputs,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
 }
@@ -259,11 +222,7 @@ func (c *LastBlockStatsCollector) collectTransactionsOutputs() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_lastblock_transactions_outputs",
-			"distribution of outputs in the last block",
-			nil, nil,
-		),
+		descLastBlockTxOutputs,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
 }
@@ -271,21 +230,13 @@ func (c *LastBlockStatsCollector) collectTransactionsOutputs() {
 //nolint:unused // kept for parity with the other per-field collectors; wired up on demand.
 func (c *LastBlockStatsCollector) collectVersions() {
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_lastblock_version_major",
-			"major version of the block format",
-			nil, nil,
-		),
+		descLastBlockVersionMajor,
 		prometheus.GaugeValue,
 		float64(c.header.MajorVersion),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_lastblock_version_minor",
-			"minor version of the block format",
-			nil, nil,
-		),
+		descLastBlockVersionMinor,
 		prometheus.GaugeValue,
 		float64(c.header.MinorVersion),
 	)

@@ -14,7 +14,6 @@ type PeersCollector struct {
 	client   *daemon.Client
 	metricsC chan<- prometheus.Metric
 
-	graylist  []daemon.Peer
 	whitelist []daemon.Peer
 }
 
@@ -30,7 +29,7 @@ func NewPeersCollector(
 }
 
 func (c *PeersCollector) Name() string {
-	return "peerlist"
+	return CollectorPeerlist
 }
 
 func (c *PeersCollector) Collect(ctx context.Context) error {
@@ -39,7 +38,6 @@ func (c *PeersCollector) Collect(ctx context.Context) error {
 		return fmt.Errorf("fetch data: %w", err)
 	}
 
-	c.collectPeersCount()
 	c.collectPeersLastSeen()
 
 	return nil
@@ -51,32 +49,9 @@ func (c *PeersCollector) fetchData(ctx context.Context) error {
 		return fmt.Errorf("get peerlist: %w", err)
 	}
 
-	c.graylist = resp.GrayList
 	c.whitelist = resp.WhiteList
 
 	return nil
-}
-
-func (c *PeersCollector) collectPeersCount() {
-	desc := prometheus.NewDesc(
-		"monero_peerlist",
-		"number of node entries in the peerlist",
-		[]string{"type"}, nil,
-	)
-
-	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
-		prometheus.GaugeValue,
-		float64(len(c.whitelist)),
-		"white",
-	)
-
-	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
-		prometheus.GaugeValue,
-		float64(len(c.graylist)),
-		"gray",
-	)
 }
 
 func (c *PeersCollector) collectPeersLastSeen() {
@@ -90,11 +65,7 @@ func (c *PeersCollector) collectPeersLastSeen() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_peerlist_lastseen",
-			"distribution of when our peers have been seen",
-			nil, nil,
-		),
+		descPeerLastSeen,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
 }

@@ -1,0 +1,27 @@
+groups:
+  - name: monero-exporter
+    rules:
+      - alert: MoneroNodeDown
+        expr: monero_up == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: monerod is not answering get_info
+          description: >
+            monero_up has been 0 for 5 minutes, so the last get_info call
+            failed. The node is unreachable or its RPC is not answering.
+            Other collectors do not affect this alert.
+
+      - alert: MoneroExporterCollectorFailing
+        expr: monero_exporter_collector_success == 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: monero-exporter collector {{ $labels.collector }} is failing
+          description: >
+            Collector {{ $labels.collector }} has been failing for 15 minutes.
+            The last good samples are still exported. A slow get_peer_list on
+            spinning disks is a common cause; disable that collector or raise
+            --collector.peerlist.interval.

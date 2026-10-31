@@ -1,6 +1,10 @@
 package collector
 
-import "github.com/beorn7/perks/quantile"
+import (
+	"math"
+
+	"github.com/beorn7/perks/quantile"
+)
 
 // defaultQuantiles is the default quantiles to compute for a given data stream
 // that we want to summarize.
@@ -52,7 +56,14 @@ func NewSummary(opts ...SummaryOption) *Summary {
 	return summary
 }
 
+// Insert records one observation. Non-finite values are ignored so a collector
+// can never export a NaN or Inf sample (for example a rate whose live_time is
+// zero).
 func (s *Summary) Insert(v float64) {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return
+	}
+
 	s.sum += v
 	s.stream.Insert(v)
 	s.count++

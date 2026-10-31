@@ -71,6 +71,14 @@ Flags:
                                      cached snapshot per scrape (default 0 = live)
       --rpc-timeout duration         timeout for each monerod RPC call 
                                      (default 30s)
+      --collector.<name>             enable a collector (default: all enabled)
+      --no-collector.<name>          disable a collector
+      --collector.<name>.interval    minimum time between runs of that collector
+                                     (0 = every cycle; not valid for overall)
+      --collector.transaction_pool.full
+                                     also call get_transaction_pool for
+                                     per-transaction mempool distributions
+                                     (expensive; default false)
       --telemetry-path string        endpoint at which prometheus metrics are 
                                      served (default "/metrics")
       --tls-skip-verify              skip TLS certificate verification when 
@@ -86,12 +94,55 @@ scrape success to RPC latency: while the daemon is busy (e.g. during initial
 block download) a sweep can exceed Prometheus' `scrape_timeout`, failing the
 whole scrape and leaving gaps in every panel.
 
-Set `--refresh-interval` (e.g. `30s`) to switch to **cache mode**: the exporter
-refreshes its metrics in the background on that interval and serves the last
-snapshot to every scrape instantly, so scrapes never time out regardless of how
-slow or unreachable monerod is. Because the scrape then always succeeds, watch
-the dedicated health metric **`monero_up`** (`0` when the last refresh could not
-reach monerod) instead of Prometheus' built-in `up` for alerting.
+Set `--refresh-interval` to switch to **cache mode**: the exporter refreshes its
+metrics in the background on that interval and serves the last snapshot to every
+scrape instantly, so scrapes never time out regardless of how slow or
+unreachable monerod is. The flag defaults to `0` (live on every scrape) so
+existing deployments keep that behavior. **`60s` is the recommended cache-mode
+value**: a full cycle on a slow disk can run well past 30s, and the interval
+should be longer than the cycle. If a cycle still overruns the interval, the
+exporter logs `collection cycle exceeded refresh interval` (with the measured
+duration) so the two can be tuned apart. Because a cached scrape always
+succeeds, watch **`monero_up`** (`0` only when `get_info` failed) instead of
+Prometheus' built-in `up` for alerting. A slow or failing peer list does not
+mark the node down; see `monero_exporter_collector_success` for that.
+
+### Collectors
+
+Every collector is enabled by default, which is the same set the exporter has
+always scraped. Turn one off with `--no-collector.<name>`, or run it less often
+than the others with `--collector.<name>.interval`.
+
+| name | flag | what it calls |
+| ---- | ---- | ------------- |
+| overall | `--collector.overall` | `get_info` (node info, plus peer and connection counts). No interval flag: it follows `--refresh-interval`. |
+| lastblock | `--collector.lastblock` | last block header, block, and transactions |
+| transaction_pool | `--collector.transaction_pool` | transaction pool |
+| rpc | `--collector.rpc` | `rpc_access_tracking` |
+| net | `--collector.net` | `get_net_stats` |
+| connections | `--collector.connections` | `get_connections` (age, height, and rate distributions only) |
+| peerlist | `--collector.peerlist` | `get_peer_list` (last-seen ages only) |
+
+`get_peer_list` is the expensive call: on a public node it can return about a
+megabyte and take tens of seconds, which is enough to make a full cycle longer
+than the scrape or refresh interval. On slow storage, disable it or stretch it
+out:
+
+```console
+# counts stay; only the last-seen distribution is dropped
+monero-exporter --no-collector.peerlist
+
+# or refresh the peer list every 10 minutes
+monero-exporter --refresh-interval=60s --collector.peerlist.interval=10m
+```
+
+Connection counts (`monero_p2p_connections{type="in"|"out",state="total"}`) and
+peer counts (`monero_peerlist{type="white"|"gray"}`) are read from `get_info`.
+Both series are always exported, including when the count is `0`, and they do
+not require `get_connections` or `get_peer_list`. `state="total"` is the
+aggregate reported by the daemon; per-connection state is not a separate
+series. Disabling `--collector.overall` also drops these counts, because they
+come from that same `get_info` call.
 
 ### Timeouts (`--rpc-timeout`, `--collect-timeout`)
 
@@ -321,6 +372,10 @@ blocks looked like as long as the interval between those scrapes where short
 enough (i.e., in between the mean time for a block to be mined - 2min as of
 today).
 
+The block body and its transactions are fetched only when `top_block_hash`
+changes (from `get_info`, or from `get_last_block_header` when that hash is
+unavailable). Until the next block, collection reuses the previous samples.
+
 
 | name | description |
 | ---- | ----------- |
@@ -347,21 +402,26 @@ Given the pull-based nature of Prometheus, this will be only as granular as the
 frequency of scraping configured for it.
 
 
+Aggregate series come from `get_transaction_pool_stats`. The per-transaction
+distributions require `--collector.transaction_pool.full`, which also calls
+`get_transaction_pool` and downloads every pooled transaction body. Leave that
+flag off unless you need those distributions.
+
 | name | description |
 | ---- | ----------- |
 | monero_transaction_pool_double_spends | transactions doubly spending outputs |
 | monero_transaction_pool_failing_transactions | number of transactions that are marked as failing |
-| monero_transaction_pool_fees_micronero_per_kb | distribution of the feeperkb utilized for txns in the pool |
+| monero_transaction_pool_fees_micronero_per_kb | distribution of the feeperkb utilized for txns in the pool (`--collector.transaction_pool.full`) |
 | monero_transaction_pool_fees_monero | total amount of fee being spent in the transaction pool |
 | monero_transaction_pool_not_relayed | number of transactions that have not been relayed |
 | monero_transaction_pool_older_than_10m | number of transactions that are older than 10m |
 | monero_transaction_pool_size_bytes | total size of the transaction pool |
-| monero_transaction_pool_spent_key_images | total number of key images spent across all transactions in the pool |
+| monero_transaction_pool_spent_key_images | total number of key images spent across all transactions in the pool (`--collector.transaction_pool.full`) |
 | monero_transaction_pool_transactions | number of transactions in the pool at the moment of the scrape |
-| monero_transaction_pool_transactions_age | distribution of for how long transactions have been in the pool |
-| monero_transaction_pool_transactions_inputs | distribution of inputs in the pool |
-| monero_transaction_pool_transactions_outputs | distribution of outputs in the pool |
-| monero_transaction_pool_transactions_size_bytes | distribution of the size of the transactions in the transaction pool |
+| monero_transaction_pool_transactions_age | distribution of for how long transactions have been in the pool (`--collector.transaction_pool.full`) |
+| monero_transaction_pool_transactions_inputs | distribution of inputs in the pool (`--collector.transaction_pool.full`) |
+| monero_transaction_pool_transactions_outputs | distribution of outputs in the pool (`--collector.transaction_pool.full`) |
+| monero_transaction_pool_transactions_size_bytes | distribution of the size of the transactions in the transaction pool (`--collector.transaction_pool.full`) |
 
 
 ### RPC
@@ -387,7 +447,7 @@ connected to the node (thus, transmitting and receiving data to/from our node).
 
 | name | description |
 | ---- | ----------- |
-| monero_p2p_connections | number of connections to/from this node |
+| monero_p2p_connections | number of connections to/from this node (`type` `in` or `out`, `state` `total`), from `get_info`, including zeros |
 | monero_p2p_connections_age | distribution of age of the connections we have |
 | monero_p2p_connections_height | distribution the height of the peers connected to/from us |
 | monero_p2p_connections_rx_rate_bps | distribution of data receive rate in bytes/s |
@@ -402,8 +462,8 @@ called peerlists, divided in anchor, white, and gray.
 
 | name | description |
 | ---- | ----------- |
-| monero_peerlist | number of node entries in the peerlist |
-| monero_peerlist_lastseen | distribution of when our peers have been seen |
+| monero_peerlist | number of node entries in the peerlist (`type` `white` or `gray`), from `get_info`, including zeros |
+| monero_peerlist_lastseen | distribution of when white-list peers have been seen (requires `--collector.peerlist`) |
 
 
 ### Net Stats
@@ -413,7 +473,7 @@ Aggregated network statistics, not specific to P2P or RPC.
 | name | description |
 | ---- | ----------- |
 | monero_net_rx_bytes | number of bytes received by this node |
-| monero_net_tx_bytes | number of bytes received by this node |
+| monero_net_tx_bytes | number of bytes sent by this node |
 
 
 ### Info
@@ -442,8 +502,14 @@ Health of the exporter's own collection (most useful with `--refresh-interval`).
 
 | name | description |
 | ---- | ----------- |
-| monero_up | whether the last collection cycle reached monerod without any collector error (1) or not (0) |
+| monero_up | 1 when the last `get_info` call succeeded, otherwise 0. Other collectors do not affect it |
 | monero_exporter_collection_duration_seconds | wall-clock duration of the last collection cycle |
+| monero_exporter_collector_success | 1 when that collector's last attempt succeeded, otherwise 0 (`collector` label). Disabled collectors are omitted. An interval skip stays 1 |
+| monero_exporter_collector_duration_seconds | wall-clock duration of that collector's last attempt |
+| monero_exporter_last_success_timestamp_seconds | unix time of that collector's last success; 0 if it has never succeeded |
+
+Example alert rules for a sustained collector failure and for `monero_up == 0`
+live in [examples/prometheus/alerts.yml](examples/prometheus/alerts.yml).
 
 ## License
 

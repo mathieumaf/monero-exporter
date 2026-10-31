@@ -15,7 +15,7 @@ func TestFixturesParse(t *testing.T) {
 	fx := loadFixtures(t)
 
 	var info daemon.GetInfoResult
-	mustJSON(t, fx["get_info"], &info)
+	mustJSON(t, fx[rpcGetInfo], &info)
 
 	if info.Version != "0.18.4.4-release" {
 		t.Fatalf("version %q", info.Version)

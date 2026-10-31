@@ -2,4 +2,3 @@ monero_info_uptime_seconds_total non-counter metrics should not have "_total" su
 monero_lastblock_fees_micronero_per_kb metric names should not contain abbreviated units
 monero_rpc_hits_total non-counter metrics should not have "_total" suffix
 monero_rpc_seconds_total non-counter metrics should not have "_total" suffix
-monero_transaction_pool_fees_micronero_per_kb metric names should not contain abbreviated units

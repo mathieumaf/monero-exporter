@@ -14,6 +14,10 @@ type OverallCollector struct {
 	client   *daemon.Client
 	metricsC chan<- prometheus.Metric
 
+	// onInfo, when set, receives a successful get_info result so later
+	// collectors can reuse top_block_hash without another RPC.
+	onInfo func(*daemon.GetInfoResult)
+
 	info *daemon.GetInfoResult
 }
 
@@ -29,7 +33,7 @@ func NewOverallCollector(
 }
 
 func (c *OverallCollector) Name() string {
-	return "overall"
+	return CollectorOverall
 }
 
 func (c *OverallCollector) Collect(ctx context.Context) error {
@@ -50,6 +54,9 @@ func (c *OverallCollector) fetchData(ctx context.Context) error {
 	}
 
 	c.info = res
+	if c.onInfo != nil {
+		c.onInfo(res)
+	}
 
 	return nil
 }
@@ -59,11 +66,7 @@ func (c *OverallCollector) collect() {
 	now := clockNow()
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_info_uptime_seconds_total",
-			"for how long this node has been up",
-			nil, nil,
-		),
+		descInfoUptime,
 		prometheus.GaugeValue,
 		//nolint:gosec // a unix start-time timestamp comfortably fits in int64.
 		float64(now.
@@ -72,126 +75,104 @@ func (c *OverallCollector) collect() {
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_info_alternative_blocks",
-			"number of blocks alternative to the longest",
-			nil, nil,
-		),
+		descInfoAltBlocks,
 		prometheus.GaugeValue,
 		float64(c.info.AltBlocksCount),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_info_offline",
-			"whether the node is offline",
-			nil, nil,
-		),
+		descInfoOffline,
 		prometheus.GaugeValue,
 		boolToFloat64(c.info.Offline),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_info_mainnet",
-			"whether the node is connected to mainnet",
-			nil, nil,
-		),
+		descInfoMainnet,
 		prometheus.GaugeValue,
 		boolToFloat64(c.info.Mainnet),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_info_block_size_limit_bytes",
-			"maximum hard limit of a block",
-			nil, nil,
-		),
+		descInfoBlockSizeLimit,
 		prometheus.GaugeValue,
 		float64(c.info.BlockSizeLimit),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_info_block_size_median_bytes",
-			"current median size for computing dynamic fees",
-			nil, nil,
-		),
+		descInfoBlockSizeMedian,
 		prometheus.GaugeValue,
 		float64(c.info.BlockSizeMedian),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_info_synchronized",
-			"whether the node's chain is in sync with the network",
-			nil, nil,
-		),
+		descInfoSynchronized,
 		prometheus.GaugeValue,
 		boolToFloat64(c.info.Synchronized),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_info_height",
-			"current height of the chain",
-			nil, nil,
-		),
+		descInfoHeight,
 		prometheus.GaugeValue,
 		float64(c.info.Height),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_info_target_height",
-			"target height to achieve to be considered in sync",
-			nil, nil,
-		),
+		descInfoTargetHeight,
 		prometheus.GaugeValue,
 		float64(c.info.TargetHeight),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_info_sync_ratio",
-			"chain sync progress as a ratio in [0,1] (1 = fully "+
-				"synced); monerod reports target_height=0 once "+
-				"synced, which this metric normalizes to 1",
-			nil, nil,
-		),
+		descInfoSyncRatio,
 		prometheus.GaugeValue,
 		syncRatio(c.info.Height, c.info.TargetHeight),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_info_rpc_connections",
-			"number of rpc connections being served by the node",
-			nil, nil,
-		),
+		descInfoRPCConnections,
 		prometheus.GaugeValue,
 		float64(c.info.RPCConnectionsCount),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_info_database_size_bytes",
-			"size of the monero database",
-			nil, nil,
-		),
+		descInfoDatabaseSize,
 		prometheus.GaugeValue,
 		float64(c.info.DatabaseSize),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_info_free_space_bytes",
-			"amount of free space in the partition where "+
-				"monero's database is in",
-			nil, nil,
-		),
+		descInfoFreeSpace,
 		prometheus.GaugeValue,
 		float64(c.info.FreeSpace),
+	)
+
+	// Connection and peer counts come from get_info so they stay present
+	// (including zeros) when the heavy get_connections / get_peer_list
+	// collectors are disabled. state=total is the aggregate; get_info has
+	// no per-state breakdown. The peerlist label stays "gray" (not "grey").
+	c.metricsC <- prometheus.MustNewConstMetric(
+		descConnCount,
+		prometheus.GaugeValue,
+		float64(c.info.IncomingConnectionsCount),
+		"in", "total",
+	)
+	c.metricsC <- prometheus.MustNewConstMetric(
+		descConnCount,
+		prometheus.GaugeValue,
+		float64(c.info.OutgoingConnectionsCount),
+		"out", "total",
+	)
+	c.metricsC <- prometheus.MustNewConstMetric(
+		descPeerCount,
+		prometheus.GaugeValue,
+		float64(c.info.WhitePeerlistSize),
+		"white",
+	)
+	c.metricsC <- prometheus.MustNewConstMetric(
+		descPeerCount,
+		prometheus.GaugeValue,
+		float64(c.info.GreyPeerlistSize),
+		"gray",
 	)
 }
 

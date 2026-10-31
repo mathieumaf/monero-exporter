@@ -240,13 +240,30 @@ func (s *fakeMonerod) take(key string) (body []byte, code int, ok bool) {
 	return body, code, ok
 }
 
-func (s *fakeMonerod) assertSeenAll(t *testing.T) {
+// assertSeenAll requires every fixture endpoint to have been called, except
+// skip. Skipped endpoints must not have been called: the default collection
+// avoids get_last_block_header when get_info already has the tip, and it does
+// not call get_transaction_pool unless the full pool is opted in.
+func (s *fakeMonerod) assertSeenAll(t *testing.T, skip ...string) {
 	t.Helper()
+
+	skipped := make(map[string]struct{}, len(skip))
+	for _, name := range skip {
+		skipped[name] = struct{}{}
+	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for key := range s.bodies {
+		if _, ok := skipped[key]; ok {
+			if s.seen[key] != 0 {
+				t.Errorf("monerod method %s was called %d times", key, s.seen[key])
+			}
+
+			continue
+		}
+
 		if s.seen[key] == 0 {
 			t.Errorf("monerod method %s was not called", key)
 		}
@@ -502,10 +519,12 @@ func loadFixtures(t *testing.T) map[string][]byte {
 	return out
 }
 
+const rpcGetInfo = "get_info"
+
 var fixtureNames = []string{
 	"get_block",
 	"get_connections",
-	"get_info",
+	rpcGetInfo,
 	"get_last_block_header",
 	"get_net_stats",
 	"get_peer_list",

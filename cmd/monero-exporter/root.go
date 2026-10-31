@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -47,6 +48,21 @@ type command struct {
 	collectTimeout  time.Duration
 	logLevel        string
 	logFormat       string
+
+	colOverall              bool
+	colLastBlock            bool
+	colLastBlockInterval    time.Duration
+	colTransactionPool      bool
+	colTransactionPoolEvery time.Duration
+	colTransactionPoolFull  bool
+	colRPC                  bool
+	colRPCInterval          time.Duration
+	colNet                  bool
+	colNetInterval          time.Duration
+	colConnections          bool
+	colConnectionsInterval  time.Duration
+	colPeerlist             bool
+	colPeerlistInterval     time.Duration
 }
 
 func (c *command) Cmd() *cobra.Command {
@@ -92,6 +108,63 @@ func (c *command) Cmd() *cobra.Command {
 			"scrape, instead of querying live per scrape; decouples "+
 			"scrape success from RPC latency (e.g. during sync)")
 
+	c.addRuntimeFlags(cmd)
+	c.addCollectorFlags(cmd)
+	cmd.Flags().BoolVar(&c.colTransactionPoolFull, "collector.transaction_pool.full",
+		false, "fetch the full transaction pool (get_transaction_pool) for "+
+			"per-transaction distributions; expensive")
+
+	return cmd
+}
+
+// collectorToggle is a bool flag value. The negate form implements
+// --no-collector.<name> against the same variable as --collector.<name>.
+type collectorToggle struct {
+	value  *bool
+	negate bool
+}
+
+func (t collectorToggle) String() string {
+	if t.value == nil {
+		return "false"
+	}
+
+	if t.negate {
+		return strconv.FormatBool(!*t.value)
+	}
+
+	return strconv.FormatBool(*t.value)
+}
+
+func (t collectorToggle) Set(raw string) error {
+	parsed, err := strconv.ParseBool(raw)
+	if err != nil {
+		return fmt.Errorf("parse bool: %w", err)
+	}
+
+	if t.negate {
+		*t.value = !parsed
+
+		return nil
+	}
+
+	*t.value = parsed
+
+	return nil
+}
+
+func (t collectorToggle) Type() string { return "bool" }
+
+func (t collectorToggle) IsBoolFlag() bool { return true }
+
+type collectorFlag struct {
+	name     string
+	enabled  *bool
+	interval *time.Duration
+	usage    string
+}
+
+func (c *command) addRuntimeFlags(cmd *cobra.Command) {
 	cmd.Flags().DurationVar(&c.rpcTimeout, "rpc-timeout",
 		defaultRPCTimeout, "timeout for each monerod RPC call")
 
@@ -105,8 +178,73 @@ func (c *command) Cmd() *cobra.Command {
 
 	cmd.Flags().StringVar(&c.logFormat, "log.format",
 		logFormatJSON, "log format (json, console)")
+}
 
-	return cmd
+func (c *command) addCollectorFlags(cmd *cobra.Command) {
+	specs := []collectorFlag{
+		{
+			collector.CollectorOverall, &c.colOverall, nil,
+			"collect general node info and peer/connection counts from get_info",
+		},
+		{
+			collector.CollectorLastBlock, &c.colLastBlock, &c.colLastBlockInterval,
+			"collect last-block statistics",
+		},
+		{
+			collector.CollectorTransactionPool, &c.colTransactionPool, &c.colTransactionPoolEvery,
+			"collect transaction-pool statistics",
+		},
+		{
+			collector.CollectorRPC, &c.colRPC, &c.colRPCInterval,
+			"collect RPC access statistics",
+		},
+		{
+			collector.CollectorNet, &c.colNet, &c.colNetInterval,
+			"collect aggregated network counters",
+		},
+		{
+			collector.CollectorConnections, &c.colConnections, &c.colConnectionsInterval,
+			"collect per-connection age, height, and rate distributions",
+		},
+		{
+			collector.CollectorPeerlist, &c.colPeerlist, &c.colPeerlistInterval,
+			"collect peer last-seen ages via get_peer_list (expensive on slow disks)",
+		},
+	}
+
+	for _, spec := range specs {
+		addCollectorToggle(cmd, spec.name, spec.enabled, spec.usage)
+		if spec.interval == nil {
+			continue
+		}
+
+		cmd.Flags().DurationVar(
+			spec.interval,
+			"collector."+spec.name+".interval",
+			0,
+			"minimum time between "+spec.name+" collections; 0 collects on every cycle",
+		)
+	}
+}
+
+func addCollectorToggle(cmd *cobra.Command, name string, enabled *bool, usage string) {
+	*enabled = true
+
+	positive := cmd.Flags().VarPF(
+		collectorToggle{value: enabled},
+		"collector."+name,
+		"",
+		usage,
+	)
+	positive.NoOptDefVal = "true"
+
+	negative := cmd.Flags().VarPF(
+		collectorToggle{value: enabled, negate: true},
+		"no-collector."+name,
+		"",
+		"disable the "+name+" collector",
+	)
+	negative.NoOptDefVal = "true"
 }
 
 // resolveRPCCredentials returns the RPC username and password, preferring the
@@ -179,6 +317,25 @@ func (c *command) collectorOptions() (opts []collector.Option, cleanup func(), e
 	opts = append(opts, collector.WithCountryMapper(countryMapper))
 
 	return opts, cleanup, nil
+}
+
+func (c *command) collectorFlagOptions() []collector.Option {
+	return []collector.Option{
+		collector.WithCollectorEnabled(collector.CollectorOverall, c.colOverall),
+		collector.WithCollectorEnabled(collector.CollectorLastBlock, c.colLastBlock),
+		collector.WithCollectorInterval(collector.CollectorLastBlock, c.colLastBlockInterval),
+		collector.WithCollectorEnabled(collector.CollectorTransactionPool, c.colTransactionPool),
+		collector.WithCollectorInterval(collector.CollectorTransactionPool, c.colTransactionPoolEvery),
+		collector.WithTransactionPoolFull(c.colTransactionPoolFull),
+		collector.WithCollectorEnabled(collector.CollectorRPC, c.colRPC),
+		collector.WithCollectorInterval(collector.CollectorRPC, c.colRPCInterval),
+		collector.WithCollectorEnabled(collector.CollectorNet, c.colNet),
+		collector.WithCollectorInterval(collector.CollectorNet, c.colNetInterval),
+		collector.WithCollectorEnabled(collector.CollectorConnections, c.colConnections),
+		collector.WithCollectorInterval(collector.CollectorConnections, c.colConnectionsInterval),
+		collector.WithCollectorEnabled(collector.CollectorPeerlist, c.colPeerlist),
+		collector.WithCollectorInterval(collector.CollectorPeerlist, c.colPeerlistInterval),
+	}
 }
 
 func (c *command) validate() error {
@@ -255,6 +412,7 @@ func (c *command) serve(ctx context.Context, logger *zap.Logger) error {
 		collector.WithCollectTimeout(c.collectTimeout),
 		collector.WithLogger(log.WithName("collector")),
 	)
+	collectorOpts = append(collectorOpts, c.collectorFlagOptions()...)
 
 	if err := collector.Register(ctx, daemonClient, collectorOpts...); err != nil {
 		return fmt.Errorf("collector register: %w", err)

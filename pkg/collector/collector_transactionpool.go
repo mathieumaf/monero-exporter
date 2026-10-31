@@ -16,6 +16,10 @@ type TransactionPoolCollector struct {
 	client   *daemon.Client
 	metricsC chan<- prometheus.Metric
 
+	// full enables get_transaction_pool. The default stats call is enough for
+	// the aggregate series; the per-transaction distributions need the pool.
+	full bool
+
 	txns  []*daemon.TransactionJSON
 	pool  *daemon.GetTransactionPoolResult
 	stats *daemon.GetTransactionPoolStatsResult
@@ -32,8 +36,16 @@ func NewTransactionPoolCollector(
 	}
 }
 
+// WithFullPool opts into get_transaction_pool so the per-transaction series
+// are collected. The default stays on get_transaction_pool_stats.
+func (c *TransactionPoolCollector) WithFullPool() *TransactionPoolCollector {
+	c.full = true
+
+	return c
+}
+
 func (c *TransactionPoolCollector) Name() string {
-	return "transaction_pool"
+	return CollectorTransactionPool
 }
 
 func (c *TransactionPoolCollector) Collect(ctx context.Context) error {
@@ -42,16 +54,21 @@ func (c *TransactionPoolCollector) Collect(ctx context.Context) error {
 		return fmt.Errorf("fetch data: %w", err)
 	}
 
-	c.collectSpentKeyImages()
 	c.collectSize()
-	c.collectTransactionsSize()
 	c.collectTransactionsCount()
 	c.collectTransactionsFee()
+	c.collectWeirdCases()
+
+	if !c.full {
+		return nil
+	}
+
+	c.collectSpentKeyImages()
+	c.collectTransactionsSize()
 	c.collectTransactionsFeePerKb()
 	c.collectTransactionsInputs()
 	c.collectTransactionsOutputs()
 	c.collectTransactionsAgeDistribution()
-	c.collectWeirdCases()
 
 	return nil
 }
@@ -62,12 +79,16 @@ func (c *TransactionPoolCollector) fetchData(ctx context.Context) error {
 		return fmt.Errorf("get transactionpool stats: %w", err)
 	}
 
+	c.stats = stats
+	if !c.full {
+		return nil
+	}
+
 	pool, err := c.client.GetTransactionPool(ctx)
 	if err != nil {
 		return fmt.Errorf("get transaction pool: %w", err)
 	}
 
-	c.stats = stats
 	c.pool = pool
 
 	c.txns = make([]*daemon.TransactionJSON, len(pool.Transactions))
@@ -85,44 +106,24 @@ func (c *TransactionPoolCollector) fetchData(ctx context.Context) error {
 }
 
 func (c *TransactionPoolCollector) collectSpentKeyImages() {
-	desc := prometheus.NewDesc(
-		"monero_transaction_pool_spent_key_images",
-		"total number of key images spent across all transactions"+
-			" in the pool",
-		nil, nil,
-	)
-
 	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
+		descTxPoolSpentKeyImages,
 		prometheus.GaugeValue,
 		float64(len(c.pool.SpentKeyImages)),
 	)
 }
 
 func (c *TransactionPoolCollector) collectTransactionsCount() {
-	desc := prometheus.NewDesc(
-		"monero_transaction_pool_transactions",
-		"number of transactions in the pool at the moment of "+
-			"the scrape",
-		nil, nil,
-	)
-
 	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
+		descTxPoolTransactions,
 		prometheus.GaugeValue,
-		float64(len(c.pool.Transactions)),
+		float64(c.stats.PoolStats.TxsTotal),
 	)
 }
 
 func (c *TransactionPoolCollector) collectSize() {
-	desc := prometheus.NewDesc(
-		"monero_transaction_pool_size_bytes",
-		"total size of the transaction pool",
-		nil, nil,
-	)
-
 	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
+		descTxPoolSize,
 		prometheus.GaugeValue,
 		float64(c.stats.PoolStats.BytesTotal),
 	)
@@ -135,12 +136,7 @@ func (c *TransactionPoolCollector) collectTransactionsSize() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_transaction_pool_transactions_size_bytes",
-			"distribution of the size of the transactions "+
-				"in the transaction pool",
-			nil, nil,
-		),
+		descTxPoolTxSize,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
 }
@@ -155,12 +151,7 @@ func (c *TransactionPoolCollector) collectTransactionsFeePerKb() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_transaction_pool_fees_micronero_per_kb",
-			"distribution of the feeperkb utilized for txns"+
-				" in the pool",
-			nil, nil,
-		),
+		descTxPoolFeePerKB,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
 }
@@ -172,11 +163,7 @@ func (c *TransactionPoolCollector) collectTransactionsInputs() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_transaction_pool_transactions_inputs",
-			"distribution of inputs in the pool",
-			nil, nil,
-		),
+		descTxPoolTxInputs,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
 }
@@ -188,11 +175,7 @@ func (c *TransactionPoolCollector) collectTransactionsOutputs() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_transaction_pool_transactions_outputs",
-			"distribution of outputs in the pool",
-			nil, nil,
-		),
+		descTxPoolTxOutputs,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
 }
@@ -208,25 +191,14 @@ func (c *TransactionPoolCollector) collectTransactionsAgeDistribution() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_transaction_pool_transactions_age",
-			"distribution of for how long transactions have "+
-				"been in the pool",
-			nil, nil,
-		),
+		descTxPoolTxAge,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
 }
 
 func (c *TransactionPoolCollector) collectTransactionsFee() {
-	desc := prometheus.NewDesc(
-		"monero_transaction_pool_fees_monero",
-		"total amount of fee being spent in the transaction pool",
-		nil, nil,
-	)
-
 	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
+		descTxPoolFees,
 		prometheus.GaugeValue,
 		float64(c.stats.PoolStats.FeeTotal)/constant.XMR,
 	)
@@ -234,41 +206,25 @@ func (c *TransactionPoolCollector) collectTransactionsFee() {
 
 func (c *TransactionPoolCollector) collectWeirdCases() {
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_transaction_pool_failing_transactions",
-			"number of transactions that are marked as failing",
-			nil, nil,
-		),
+		descTxPoolFailing,
 		prometheus.GaugeValue,
 		float64(c.stats.PoolStats.NumFailing),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_transaction_pool_double_spends",
-			"transactions doubly spending outputs",
-			nil, nil,
-		),
+		descTxPoolDoubleSpends,
 		prometheus.GaugeValue,
 		float64(c.stats.PoolStats.NumDoubleSpends),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_transaction_pool_not_relayed",
-			"number of transactions that have not been relayed",
-			nil, nil,
-		),
+		descTxPoolNotRelayed,
 		prometheus.GaugeValue,
 		float64(c.stats.PoolStats.NumNotRelayed),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_transaction_pool_older_than_10m",
-			"number of transactions that are older than 10m",
-			nil, nil,
-		),
+		descTxPoolOlderThan10m,
 		prometheus.GaugeValue,
 		float64(c.stats.PoolStats.Num10M),
 	)

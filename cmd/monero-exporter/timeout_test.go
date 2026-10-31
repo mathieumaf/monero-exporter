@@ -48,7 +48,14 @@ func TestHangingEndpointDoesNotStarveLaterCollectors(t *testing.T) {
 
 	assertGauge(t, body, "monero_info_height", 11)
 	assertGauge(t, body, "monero_net_rx_bytes", 42)
-	assertGauge(t, body, "monero_up", 0)
+	// get_info succeeded, so the node stays up. The hung connections
+	// collector is reported on its own success series.
+	assertGauge(t, body, "monero_up", 1)
+
+	const connectionsFailed = `monero_exporter_collector_success{collector="connections"} 0`
+	if !strings.Contains(body, connectionsFailed) {
+		t.Fatalf("connections collector was not reported as failed:\n%s", body)
+	}
 
 	dur := gauge(t, body, "monero_exporter_collection_duration_seconds")
 	if dur < 0.25 || dur >= 4 {
