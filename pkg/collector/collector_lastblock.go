@@ -31,7 +31,7 @@ func NewLastBlockStatsCollector(
 }
 
 func (c *LastBlockStatsCollector) Name() string {
-	return "lastblock"
+	return collectorLastBlock
 }
 
 func (c *LastBlockStatsCollector) Collect(ctx context.Context) error {

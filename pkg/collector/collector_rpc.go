@@ -29,7 +29,7 @@ func NewRPCCollector(
 }
 
 func (c *RPCCollector) Name() string {
-	return "rpc"
+	return collectorRPC
 }
 
 func (c *RPCCollector) Collect(ctx context.Context) error {

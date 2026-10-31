@@ -30,7 +30,7 @@ func NewPeersCollector(
 }
 
 func (c *PeersCollector) Name() string {
-	return "peerlist"
+	return collectorPeerlist
 }
 
 func (c *PeersCollector) Collect(ctx context.Context) error {

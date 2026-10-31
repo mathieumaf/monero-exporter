@@ -346,7 +346,7 @@ Aggregated network statistics, not specific to P2P or RPC.
 | name | description |
 | ---- | ----------- |
 | monero_net_rx_bytes | number of bytes received by this node |
-| monero_net_tx_bytes | number of bytes received by this node |
+| monero_net_tx_bytes | number of bytes sent by this node |
 
 
 ### Info

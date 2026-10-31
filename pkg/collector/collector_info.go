@@ -29,7 +29,7 @@ func NewOverallCollector(
 }
 
 func (c *OverallCollector) Name() string {
-	return "overall"
+	return collectorOverall
 }
 
 func (c *OverallCollector) Collect(ctx context.Context) error {

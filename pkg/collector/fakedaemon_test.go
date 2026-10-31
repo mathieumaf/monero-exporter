@@ -51,6 +51,12 @@ func (f *fakeDaemon) setJSON(method string, v any) {
 	f.mu.Unlock()
 }
 
+func (f *fakeDaemon) failRaw(endpoint string, err error) {
+	f.mu.Lock()
+	f.rawErr[endpoint] = err
+	f.mu.Unlock()
+}
+
 func (f *fakeDaemon) setRaw(endpoint string, v any) {
 	body, err := json.Marshal(v)
 	if err != nil {
@@ -119,7 +125,8 @@ const (
 	fixtureTop    = "abcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcabcd"
 	fixtureTxHash = "tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1tx1"
 
-	jsonHeight = "height"
+	jsonHeight      = "height"
+	jsonConnections = "connections"
 )
 
 // newFixtureDaemon returns a daemon whose responses let every collector emit
@@ -192,7 +199,7 @@ func (f *fakeDaemon) setChainFixtures() {
 
 func (f *fakeDaemon) setNetworkFixtures() {
 	f.setJSON("get_connections", map[string]any{
-		"connections": []any{
+		jsonConnections: []any{
 			map[string]any{
 				"incoming":   true,
 				"state":      "normal",

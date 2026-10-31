@@ -2,6 +2,7 @@ package collector
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -19,6 +20,32 @@ import (
 // RPC connection can never block a scrape (live mode) or freeze the background
 // refresh loop (cache mode) indefinitely.
 const collectTimeout = 2 * time.Minute
+
+// Collector names match the CustomCollector.Name values and the
+// --collector.<name> flags.
+const (
+	collectorOverall         = "overall"
+	collectorLastBlock       = "lastblock"
+	collectorTransactionPool = "transaction_pool"
+	collectorRPC             = "rpc"
+	collectorNet             = "net"
+	collectorConnections     = "connections"
+	collectorPeerlist        = "peerlist"
+)
+
+// collectorOrder is the sequential collection order. get_info (overall) stays
+// first so it is never starved by the heavier peer and connection sweeps.
+var collectorOrder = []string{
+	collectorOverall,
+	collectorLastBlock,
+	collectorTransactionPool,
+	collectorRPC,
+	collectorNet,
+	collectorConnections,
+	collectorPeerlist,
+}
+
+var errUnknownCollector = errors.New("unknown collector")
 
 // CountryMapper defines the signature of a function that given an IP,
 // translates it into a country name.
@@ -51,6 +78,12 @@ type Collector struct {
 	mu     sync.RWMutex
 	cached []prometheus.Metric
 
+	// collectMu serializes a collection cycle and guards lastGood.
+	collectMu sync.Mutex
+	// lastGood is the last successful sample set of each collector. A later
+	// failure keeps those series in the scrape instead of removing them.
+	lastGood map[string][]prometheus.Metric
+
 	log logr.Logger
 }
 
@@ -78,6 +111,13 @@ func WithCountryMapper(v CountryMapper) func(c *Collector) {
 func WithRefreshInterval(v time.Duration) func(c *Collector) {
 	return func(c *Collector) {
 		c.refreshInterval = v
+	}
+}
+
+// WithLogger overrides the default development logger.
+func WithLogger(l logr.Logger) func(c *Collector) {
+	return func(c *Collector) {
+		c.log = l
 	}
 }
 
@@ -212,44 +252,29 @@ func (c *Collector) refreshOnce(ctx context.Context) {
 // the collectors concurrently makes the daemon evict not-yet-used nonces, so the
 // heavier calls (get_connections, get_peer_list, ...) send their authenticated
 // follow-up after their nonce is already gone and come back 401. One outstanding
-// challenge at a time avoids the race entirely. A failing collector only drops
-// its own metrics, never the others'; it flips monero_up to 0.
+// challenge at a time avoids the race entirely. A failing collector keeps the
+// last series it successfully produced; it still flips monero_up to 0.
 func (c *Collector) gather(ctx context.Context) []prometheus.Metric {
+	c.collectMu.Lock()
+	defer c.collectMu.Unlock()
+
 	start := time.Now()
-	buf := make(chan prometheus.Metric, 512)
-
-	// get_info (overall) is the cheapest and most important call, so it goes
-	// first and is never starved by the heavier peer/connection sweeps.
-	collectors := []CustomCollector{
-		NewOverallCollector(c.client, buf),
-		NewLastBlockStatsCollector(c.client, buf),
-		NewTransactionPoolCollector(c.client, buf),
-		NewRPCCollector(c.client, buf),
-		NewNetStatsCollector(c.client, buf),
-		NewConnectionsCollector(c.client, buf),
-		NewPeersCollector(c.client, buf),
-	}
-
 	ok := true
+	metrics := make([]prometheus.Metric, 0, 64)
 
-	go func() {
-		for _, collector := range collectors {
-			if err := collector.Collect(ctx); err != nil {
-				ok = false
-				c.log.Error(err, "collect", "collector", collector.Name())
-			}
+	for _, name := range collectorOrder {
+		got, err := c.collectOne(ctx, name)
+		if err != nil {
+			ok = false
+			c.log.Error(err, "collect", "collector", name)
+			got = c.lastGood[name]
+		} else {
+			c.storeGood(name, got)
 		}
 
-		close(buf)
-	}()
-
-	metrics := make([]prometheus.Metric, 0, 64)
-	for m := range buf {
-		metrics = append(metrics, m)
+		metrics = append(metrics, got...)
 	}
 
-	// Safe to read ok here: the channel close above synchronizes-with the
-	// drain completing, so every write to ok happens-before this read.
 	metrics = append(metrics,
 		prometheus.MustNewConstMetric(
 			descUp, prometheus.GaugeValue, boolToFloat64(ok),
@@ -261,4 +286,67 @@ func (c *Collector) gather(ctx context.Context) []prometheus.Metric {
 	)
 
 	return metrics
+}
+
+// collectOne runs a single collector. The channel is drained on another
+// goroutine only so a chatty collector cannot block on a full buffer; the
+// caller waits for that collector to finish before starting the next one.
+func (c *Collector) collectOne(
+	ctx context.Context, name string,
+) ([]prometheus.Metric, error) {
+	buf := make(chan prometheus.Metric, 32)
+	col, err := c.newCollector(name, buf)
+	if err != nil {
+		return nil, err
+	}
+
+	errc := make(chan error, 1)
+	go func() {
+		errc <- col.Collect(ctx)
+		close(buf)
+	}()
+
+	metrics := make([]prometheus.Metric, 0, 8)
+	for metric := range buf {
+		metrics = append(metrics, metric)
+	}
+
+	if err := <-errc; err != nil {
+		return nil, fmt.Errorf("collect %s: %w", name, err)
+	}
+
+	return metrics, nil
+}
+
+func (c *Collector) newCollector(
+	name string, ch chan<- prometheus.Metric,
+) (CustomCollector, error) {
+	switch name {
+	case collectorOverall:
+		return NewOverallCollector(c.client, ch), nil
+	case collectorLastBlock:
+		return NewLastBlockStatsCollector(c.client, ch), nil
+	case collectorTransactionPool:
+		return NewTransactionPoolCollector(c.client, ch), nil
+	case collectorRPC:
+		return NewRPCCollector(c.client, ch), nil
+	case collectorNet:
+		return NewNetStatsCollector(c.client, ch), nil
+	case collectorConnections:
+		return NewConnectionsCollector(c.client, ch), nil
+	case collectorPeerlist:
+		return NewPeersCollector(c.client, ch), nil
+	default:
+		return nil, fmt.Errorf("%s: %w", name, errUnknownCollector)
+	}
+}
+
+func (c *Collector) storeGood(name string, metrics []prometheus.Metric) {
+	if c.lastGood == nil {
+		c.lastGood = make(map[string][]prometheus.Metric, len(collectorOrder))
+	}
+
+	saved := make([]prometheus.Metric, len(metrics))
+	copy(saved, metrics)
+	c.lastGood[name] = saved
 }

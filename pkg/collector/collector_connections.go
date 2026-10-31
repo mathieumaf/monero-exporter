@@ -28,7 +28,7 @@ func NewConnectionsCollector(
 }
 
 func (c *ConnectionsCollector) Name() string {
-	return "connections"
+	return collectorConnections
 }
 
 func (c *ConnectionsCollector) Collect(ctx context.Context) error {
@@ -63,6 +63,12 @@ func (c *ConnectionsCollector) collectDataRates() {
 	summaryTx := NewSummary()
 
 	for _, conn := range c.connections.Connections {
+		// A connection that has just been established reports live_time 0.
+		// Dividing by it would export NaN (0/0) or +Inf.
+		if conn.LiveTime == 0 {
+			continue
+		}
+
 		summaryRx.Insert(float64(conn.RecvCount) / float64(conn.LiveTime))
 		summaryTx.Insert(float64(conn.SendCount) / float64(conn.LiveTime))
 	}

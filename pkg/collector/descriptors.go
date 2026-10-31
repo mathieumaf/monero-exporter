@@ -286,7 +286,7 @@ var (
 	)
 	descNetTx = prometheus.NewDesc(
 		"monero_net_tx_bytes",
-		"number of bytes received by this node",
+		"number of bytes sent by this node",
 		nil, nil,
 	)
 )
