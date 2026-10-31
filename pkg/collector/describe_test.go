@@ -11,7 +11,7 @@ import (
 // when a new series is added; pedantic registration fails if a collected
 // series is missing from this set.
 const (
-	describedMetrics = 52
+	describedMetrics = 55
 
 	labelType  = "type"
 	labelState = "state"

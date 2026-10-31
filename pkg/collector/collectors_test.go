@@ -175,4 +175,6 @@ func TestOverallDisabledSkipsGetInfo(t *testing.T) {
 	if familyByName(families, "monero_peerlist") != nil {
 		t.Fatal("peer counts were exported without get_info")
 	}
+
+	assertGauge(t, families, "monero_up", nil, 0)
 }

@@ -2,14 +2,16 @@ package collector
 
 import "github.com/prometheus/client_golang/prometheus"
 
+// labelCollector is the variable label shared by the per-collector health metrics.
+const labelCollector = "collector"
+
 // Metric descriptors are allocated once. Describe sends every one of them so
 // the Prometheus registry can reject duplicate names, inconsistent label sets,
 // and HELP mismatches at registration time rather than at scrape time.
 var (
 	descUp = prometheus.NewDesc(
 		"monero_up",
-		"whether the exporter's last collection cycle reached monerod "+
-			"without any collector error (1) or not (0)",
+		"whether the last get_info call succeeded (1) or not (0)",
 		nil, nil,
 	)
 
@@ -17,6 +19,24 @@ var (
 		"monero_exporter_collection_duration_seconds",
 		"wall-clock duration of the exporter's last collection cycle",
 		nil, nil,
+	)
+
+	descCollectorSuccess = prometheus.NewDesc(
+		"monero_exporter_collector_success",
+		"whether the collector's last attempt succeeded (1) or not (0); "+
+			"a skipped interval still counts as success",
+		[]string{labelCollector}, nil,
+	)
+	descCollectorDuration = prometheus.NewDesc(
+		"monero_exporter_collector_duration_seconds",
+		"wall-clock duration of the collector's last attempt",
+		[]string{labelCollector}, nil,
+	)
+	descCollectorLastSuccess = prometheus.NewDesc(
+		"monero_exporter_last_success_timestamp_seconds",
+		"unix timestamp of the collector's last successful collection; "+
+			"0 if it has not succeeded yet",
+		[]string{labelCollector}, nil,
 	)
 
 	descInfoUptime = prometheus.NewDesc(
@@ -296,6 +316,9 @@ var (
 var descriptors = []*prometheus.Desc{
 	descUp,
 	descCollectionDuration,
+	descCollectorSuccess,
+	descCollectorDuration,
+	descCollectorLastSuccess,
 
 	descInfoUptime,
 	descInfoAltBlocks,

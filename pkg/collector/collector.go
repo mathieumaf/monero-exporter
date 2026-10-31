@@ -92,8 +92,11 @@ type Collector struct {
 	// lastGood is the last successful sample set of each collector. A later
 	// failure keeps those series in the scrape instead of removing them.
 	lastGood map[string][]prometheus.Metric
-	// lastRun is when each collector last succeeded, for per-collector intervals.
+	// lastRun is when each collector last succeeded, for per-collector intervals
+	// and monero_exporter_last_success_timestamp_seconds.
 	lastRun map[string]time.Time
+	// lastDuration is the wall time of each collector's last attempt.
+	lastDuration map[string]float64
 
 	// now, when set, replaces time.Now for interval scheduling.
 	now func() time.Time
@@ -318,7 +321,7 @@ func (c *Collector) refreshOnce(ctx context.Context) {
 // heavier calls (get_connections, get_peer_list, ...) send their authenticated
 // follow-up after their nonce is already gone and come back 401. One outstanding
 // challenge at a time avoids the race entirely. A failing collector keeps the
-// last series it successfully produced; it still flips monero_up to 0.
+// last series it successfully produced. monero_up follows get_info only.
 func (c *Collector) gather(ctx context.Context) []prometheus.Metric {
 	c.collectMu.Lock()
 	defer c.collectMu.Unlock()
@@ -326,21 +329,26 @@ func (c *Collector) gather(ctx context.Context) []prometheus.Metric {
 	start := time.Now()
 	now := c.currentTime()
 	c.tipHash = ""
-	ok := true
+	overallOK := false
 	metrics := make([]prometheus.Metric, 0, 64)
 
 	for _, name := range collectorOrder {
+		if !c.collectorEnabled(name) {
+			continue
+		}
+
 		got, failed := c.runCollector(ctx, name, now)
-		if failed {
-			ok = false
+		if name == CollectorOverall && !failed {
+			overallOK = true
 		}
 
 		metrics = append(metrics, got...)
+		metrics = append(metrics, c.collectorHealth(name, failed)...)
 	}
 
 	metrics = append(metrics,
 		prometheus.MustNewConstMetric(
-			descUp, prometheus.GaugeValue, boolToFloat64(ok),
+			descUp, prometheus.GaugeValue, boolToFloat64(overallOK),
 		),
 		prometheus.MustNewConstMetric(
 			descCollectionDuration, prometheus.GaugeValue,
@@ -387,7 +395,9 @@ func (c *Collector) runCollector(
 		return c.lastGood[name], false
 	}
 
+	started := time.Now()
 	got, err := c.collectOne(ctx, name)
+	c.setDuration(name, time.Since(started).Seconds())
 	if err != nil {
 		c.log.Error(err, "collect", "collector", name)
 
@@ -429,6 +439,38 @@ func (c *Collector) collectorDue(name string, now time.Time) bool {
 	}
 
 	return !now.Before(last.Add(interval))
+}
+
+func (c *Collector) setDuration(name string, seconds float64) {
+	if c.lastDuration == nil {
+		c.lastDuration = make(map[string]float64, len(collectorOrder))
+	}
+
+	c.lastDuration[name] = seconds
+}
+
+func (c *Collector) collectorHealth(name string, failed bool) []prometheus.Metric {
+	success := 1.0
+	if failed {
+		success = 0
+	}
+
+	var timestamp float64
+	if last, ok := c.lastRun[name]; ok && !last.IsZero() {
+		timestamp = float64(last.UnixNano()) / float64(time.Second)
+	}
+
+	return []prometheus.Metric{
+		prometheus.MustNewConstMetric(
+			descCollectorSuccess, prometheus.GaugeValue, success, name,
+		),
+		prometheus.MustNewConstMetric(
+			descCollectorDuration, prometheus.GaugeValue, c.lastDuration[name], name,
+		),
+		prometheus.MustNewConstMetric(
+			descCollectorLastSuccess, prometheus.GaugeValue, timestamp, name,
+		),
+	}
 }
 
 func (c *Collector) markRun(name string, now time.Time) {

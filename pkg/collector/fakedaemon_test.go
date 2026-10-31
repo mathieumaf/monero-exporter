@@ -79,6 +79,12 @@ func (f *fakeDaemon) rawCallsFor(endpoint string) int {
 	return n
 }
 
+func (f *fakeDaemon) failJSON(method string, err error) {
+	f.mu.Lock()
+	f.jsonErr[method] = err
+	f.mu.Unlock()
+}
+
 func (f *fakeDaemon) failRaw(endpoint string, err error) {
 	f.mu.Lock()
 	f.rawErr[endpoint] = err
@@ -159,9 +165,10 @@ const (
 	jsonGreyPeers   = "grey_peerlist_size"
 	jsonConnections = "connections"
 
-	labelWhite = "white"
-	labelOut   = "out"
-	labelTotal = "total"
+	labelWhite     = "white"
+	labelOut       = "out"
+	labelTotal     = "total"
+	labelCollector = "collector"
 )
 
 // newFixtureDaemon returns a daemon whose responses let every collector emit

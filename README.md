@@ -94,10 +94,10 @@ existing deployments keep that behavior. **`60s` is the recommended cache-mode
 value**: a full cycle on a slow disk can run well past 30s, and the interval
 should be longer than the cycle. If a cycle still overruns the interval, the
 exporter logs `collection cycle exceeded refresh interval` (with the measured
-duration) so the two can be tuned apart. Because the scrape then always
-succeeds, watch the dedicated health metric **`monero_up`** (`0` when the last
-refresh could not reach monerod) instead of Prometheus' built-in `up` for
-alerting.
+duration) so the two can be tuned apart. Because a cached scrape always
+succeeds, watch **`monero_up`** (`0` only when `get_info` failed) instead of
+Prometheus' built-in `up` for alerting. A slow or failing peer list does not
+mark the node down; see `monero_exporter_collector_success` for that.
 
 ### Collectors
 
@@ -334,6 +334,7 @@ node looked like when Prometheus asked the exporter information about it.
 Given the pull-based nature of Prometheus, this will be only as granular as the
 frequency of scraping configured for it.
 
+
 Aggregate series come from `get_transaction_pool_stats`. The per-transaction
 distributions require `--collector.transaction_pool.full`, which also calls
 `get_transaction_pool` and downloads every pooled transaction body. Leave that
@@ -434,8 +435,14 @@ Health of the exporter's own collection (most useful with `--refresh-interval`).
 
 | name | description |
 | ---- | ----------- |
-| monero_up | whether the last collection cycle reached monerod without any collector error (1) or not (0) |
+| monero_up | 1 when the last `get_info` call succeeded, otherwise 0. Other collectors do not affect it |
 | monero_exporter_collection_duration_seconds | wall-clock duration of the last collection cycle |
+| monero_exporter_collector_success | 1 when that collector's last attempt succeeded, otherwise 0 (`collector` label). Disabled collectors are omitted. An interval skip stays 1 |
+| monero_exporter_collector_duration_seconds | wall-clock duration of that collector's last attempt |
+| monero_exporter_last_success_timestamp_seconds | unix time of that collector's last success; 0 if it has never succeeded |
+
+Example alert rules for a sustained collector failure and for `monero_up == 0`
+live in [examples/prometheus/alerts.yml](examples/prometheus/alerts.yml).
 
 ## License
 
