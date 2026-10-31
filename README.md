@@ -50,9 +50,14 @@ Available Commands:
 Flags:
       --bind-addr string             address to bind the prometheus server to 
                                      (default ":9000")
+      --collect-timeout duration     maximum duration of one collection cycle 
+                                     (default 2m)
       --geoip-filepath string        filepath of a geoip database file for ip to 
                                      country resolution
   -h, --help                         help for monero-exporter
+      --log.format string            log format (json, console) (default "json")
+      --log.level string             log level (debug, info, warn, error) 
+                                     (default "info")
       --monero-addr string           address of the monero instance to collect 
                                      info from (default "http://localhost:18081")
       --monero-rpc-user string       username for monerod's RPC digest auth 
@@ -64,6 +69,8 @@ Flags:
       --refresh-interval duration    when > 0, collect from monerod in the 
                                      background on this interval and serve a 
                                      cached snapshot per scrape (default 0 = live)
+      --rpc-timeout duration         timeout for each monerod RPC call 
+                                     (default 30s)
       --telemetry-path string        endpoint at which prometheus metrics are 
                                      served (default "/metrics")
       --tls-skip-verify              skip TLS certificate verification when 
@@ -85,6 +92,31 @@ snapshot to every scrape instantly, so scrapes never time out regardless of how
 slow or unreachable monerod is. Because the scrape then always succeeds, watch
 the dedicated health metric **`monero_up`** (`0` when the last refresh could not
 reach monerod) instead of Prometheus' built-in `up` for alerting.
+
+### Timeouts (`--rpc-timeout`, `--collect-timeout`)
+
+Each monerod RPC call is limited by `--rpc-timeout` (default `30s`). That value
+is the go-monero HTTP client's per-request timeout, so a stuck call (for
+example a slow `get_peer_list`) fails on its own and the rest of the collectors
+in the cycle still run.
+
+The whole cycle — one live scrape, or one background refresh when
+`--refresh-interval` is set — is limited by `--collect-timeout` (default `2m`,
+the previous hard-coded budget). Raise either flag on a slow disk or a large
+peer list. If `--rpc-timeout` is longer than `--collect-timeout`, the exporter
+logs a warning: the cycle budget cancels the call first.
+
+### Logging (`--log.level`, `--log.format`)
+
+Logs use a production zap logger. `--log.level` is `debug`, `info` (the
+default), `warn`, or `error`. `--log.format` is `json` (the default) or
+`console`.
+
+### Shutdown
+
+`SIGINT` and `SIGTERM` cancel the background refresh loop, shut the metrics
+server down with a bounded wait (15s), and exit 0. A scrape that outlives that
+wait is closed so a container restart is not held open.
 
 ### RPC authentication
 
