@@ -20,21 +20,6 @@ import (
 // refresh loop (cache mode) indefinitely.
 const collectTimeout = 2 * time.Minute
 
-var (
-	upDesc = prometheus.NewDesc(
-		"monero_up",
-		"whether the exporter's last collection cycle reached monerod "+
-			"without any collector error (1) or not (0)",
-		nil, nil,
-	)
-
-	collectionDurationDesc = prometheus.NewDesc(
-		"monero_exporter_collection_duration_seconds",
-		"wall-clock duration of the exporter's last collection cycle",
-		nil, nil,
-	)
-)
-
 // CountryMapper defines the signature of a function that given an IP,
 // translates it into a country name.
 //
@@ -100,15 +85,12 @@ func defaultCountryMapper(_ net.IP) (string, error) {
 	return "unknown", nil
 }
 
-// Register registers this collector with the global prometheus collectors
-// registry making it available for an exporter to collect our metrics.
-//
-// When a refresh interval is configured (cache mode), it also starts the
-// background refresh loop, which runs until ctx is cancelled.
-func Register(ctx context.Context, client *daemon.Client, opts ...Option) error {
+// New builds a Collector without registering it. Register is the usual
+// entry point; New exists so callers (and tests) can use a private registry.
+func New(client *daemon.Client, opts ...Option) (*Collector, error) {
 	defaultLogger, err := zap.NewDevelopment()
 	if err != nil {
-		return fmt.Errorf("zap new development: %w", err)
+		return nil, fmt.Errorf("zap new development: %w", err)
 	}
 
 	c := &Collector{
@@ -119,6 +101,20 @@ func Register(ctx context.Context, client *daemon.Client, opts ...Option) error 
 
 	for _, opt := range opts {
 		opt(c)
+	}
+
+	return c, nil
+}
+
+// Register registers this collector with the global prometheus collectors
+// registry making it available for an exporter to collect our metrics.
+//
+// When a refresh interval is configured (cache mode), it also starts the
+// background refresh loop, which runs until ctx is cancelled.
+func Register(ctx context.Context, client *daemon.Client, opts ...Option) error {
+	c, err := New(client, opts...)
+	if err != nil {
+		return err
 	}
 
 	if err := prometheus.Register(c); err != nil {
@@ -137,9 +133,14 @@ func Register(ctx context.Context, client *daemon.Client, opts ...Option) error 
 type CollectFunc func(ctx context.Context, ch chan<- prometheus.Metric) error
 
 // Describe implements the Describe function of the Collector interface.
-func (c *Collector) Describe(_ chan<- *prometheus.Desc) {
-	// Because we can present the description of the metrics at collection
-	// time, we don't need to write anything to the channel.
+//
+// Every descriptor the exporter may emit is sent so registration takes the
+// checked path: duplicate names, inconsistent label sets, and HELP mismatches
+// fail when the collector is registered instead of at scrape time.
+func (c *Collector) Describe(ch chan<- *prometheus.Desc) {
+	for _, desc := range descriptors {
+		ch <- desc
+	}
 }
 
 type CustomCollector interface {
@@ -251,10 +252,10 @@ func (c *Collector) gather(ctx context.Context) []prometheus.Metric {
 	// drain completing, so every write to ok happens-before this read.
 	metrics = append(metrics,
 		prometheus.MustNewConstMetric(
-			upDesc, prometheus.GaugeValue, boolToFloat64(ok),
+			descUp, prometheus.GaugeValue, boolToFloat64(ok),
 		),
 		prometheus.MustNewConstMetric(
-			collectionDurationDesc, prometheus.GaugeValue,
+			descCollectionDuration, prometheus.GaugeValue,
 			time.Since(start).Seconds(),
 		),
 	)

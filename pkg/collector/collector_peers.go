@@ -58,21 +58,15 @@ func (c *PeersCollector) fetchData(ctx context.Context) error {
 }
 
 func (c *PeersCollector) collectPeersCount() {
-	desc := prometheus.NewDesc(
-		"monero_peerlist",
-		"number of node entries in the peerlist",
-		[]string{"type"}, nil,
-	)
-
 	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
+		descPeerCount,
 		prometheus.GaugeValue,
 		float64(len(c.whitelist)),
 		"white",
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		desc,
+		descPeerCount,
 		prometheus.GaugeValue,
 		float64(len(c.graylist)),
 		"gray",
@@ -90,11 +84,7 @@ func (c *PeersCollector) collectPeersLastSeen() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_peerlist_lastseen",
-			"distribution of when our peers have been seen",
-			nil, nil,
-		),
+		descPeerLastSeen,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
 }

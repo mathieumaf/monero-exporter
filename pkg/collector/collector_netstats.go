@@ -55,21 +55,13 @@ func (c *NetStatsCollector) fetchData(ctx context.Context) error {
 
 func (c *NetStatsCollector) collectRxTx() {
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_net_rx_bytes",
-			"number of bytes received by this node",
-			nil, nil,
-		),
+		descNetRx,
 		prometheus.GaugeValue,
 		float64(c.stats.TotalBytesIn),
 	)
 
 	c.metricsC <- prometheus.MustNewConstMetric(
-		prometheus.NewDesc(
-			"monero_net_tx_bytes",
-			"number of bytes received by this node",
-			nil, nil,
-		),
+		descNetTx,
 		prometheus.GaugeValue,
 		float64(c.stats.TotalBytesOut),
 	)

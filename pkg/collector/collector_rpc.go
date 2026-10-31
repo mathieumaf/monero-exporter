@@ -44,30 +44,16 @@ func (c *RPCCollector) Collect(ctx context.Context) error {
 }
 
 func (c *RPCCollector) collectRPC() {
-	countDesc := prometheus.NewDesc(
-		"monero_rpc_hits_total",
-		"number of hits that a particular rpc "+
-			"method had since startup",
-		[]string{"method"}, nil,
-	)
-
-	timeDesc := prometheus.NewDesc(
-		"monero_rpc_seconds_total",
-		"amount of time spent service the method "+
-			"since startup",
-		[]string{"method"}, nil,
-	)
-
 	for _, d := range c.accessTracking.Data {
 		c.metricsC <- prometheus.MustNewConstMetric(
-			countDesc,
+			descRPCHits,
 			prometheus.GaugeValue,
 			float64(d.Count),
 			d.RPC,
 		)
 
 		c.metricsC <- prometheus.MustNewConstMetric(
-			timeDesc,
+			descRPCSeconds,
 			prometheus.GaugeValue,
 			//nolint:gosec // an RPC timing value comfortably fits in int64.
 			time.Duration(int64(d.Time)).Seconds(),

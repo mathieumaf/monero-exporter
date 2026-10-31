@@ -53,11 +53,7 @@ func (c *ConnectionsCollector) collectConnectionAges() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_p2p_connections_age",
-			"distribution of age of the connections we have",
-			nil, nil,
-		),
+		descConnAge,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
 }
@@ -72,20 +68,12 @@ func (c *ConnectionsCollector) collectDataRates() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_p2p_connections_rx_rate_bps",
-			"distribution of data receive rate in bytes/s",
-			nil, nil,
-		),
+		descConnRxRate,
 		summaryRx.Count(), summaryRx.Sum(), summaryRx.Quantiles(),
 	)
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_p2p_connections_tx_rate_bps",
-			"distribution of data transmit rate in bytes/s",
-			nil, nil,
-		),
+		descConnTxRate,
 		summaryTx.Count(), summaryTx.Sum(), summaryTx.Quantiles(),
 	)
 }
@@ -97,23 +85,12 @@ func (c *ConnectionsCollector) collectHeightDistribution() {
 	}
 
 	c.metricsC <- prometheus.MustNewConstSummary(
-		prometheus.NewDesc(
-			"monero_p2p_connections_height",
-			"distribution the height of the peers "+
-				"connected to/from us",
-			nil, nil,
-		),
+		descConnHeight,
 		summary.Count(), summary.Sum(), summary.Quantiles(),
 	)
 }
 
 func (c *ConnectionsCollector) collectConnectionsCount() {
-	desc := prometheus.NewDesc(
-		"monero_p2p_connections",
-		"number of connections to/from this node",
-		[]string{"type", "state"}, nil,
-	)
-
 	type key struct {
 		ttype string
 		state string
@@ -132,7 +109,7 @@ func (c *ConnectionsCollector) collectConnectionsCount() {
 
 	for k, v := range counters {
 		c.metricsC <- prometheus.MustNewConstMetric(
-			desc,
+			descConnCount,
 			prometheus.GaugeValue,
 			v,
 			k.ttype, k.state,
