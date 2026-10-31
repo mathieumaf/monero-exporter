@@ -11,6 +11,7 @@
 - [Installation](#installation)
 - [Grafana](#grafana)
 - [Example](#example)
+- [Monerod compatibility](#monerod-compatibility)
 - [Metrics](#metrics)
   - [Last block](#last-block)
   - [Transaction pool](#transaction-pool)
@@ -49,9 +50,14 @@ Available Commands:
 Flags:
       --bind-addr string             address to bind the prometheus server to 
                                      (default ":9000")
+      --collect-timeout duration     maximum duration of one collection cycle 
+                                     (default 2m)
       --geoip-filepath string        filepath of a geoip database file for ip to 
                                      country resolution
   -h, --help                         help for monero-exporter
+      --log.format string            log format (json, console) (default "json")
+      --log.level string             log level (debug, info, warn, error) 
+                                     (default "info")
       --monero-addr string           address of the monero instance to collect 
                                      info from (default "http://localhost:18081")
       --monero-rpc-user string       username for monerod's RPC digest auth 
@@ -63,6 +69,8 @@ Flags:
       --refresh-interval duration    when > 0, collect from monerod in the 
                                      background on this interval and serve a 
                                      cached snapshot per scrape (default 0 = live)
+      --rpc-timeout duration         timeout for each monerod RPC call 
+                                     (default 30s)
       --collector.<name>             enable a collector (default: all enabled)
       --no-collector.<name>          disable a collector
       --collector.<name>.interval    minimum time between runs of that collector
@@ -135,6 +143,31 @@ not require `get_connections` or `get_peer_list`. `state="total"` is the
 aggregate reported by the daemon; per-connection state is not a separate
 series. Disabling `--collector.overall` also drops these counts, because they
 come from that same `get_info` call.
+
+### Timeouts (`--rpc-timeout`, `--collect-timeout`)
+
+Each monerod RPC call is limited by `--rpc-timeout` (default `30s`). That value
+is the go-monero HTTP client's per-request timeout, so a stuck call (for
+example a slow `get_peer_list`) fails on its own and the rest of the collectors
+in the cycle still run.
+
+The whole cycle — one live scrape, or one background refresh when
+`--refresh-interval` is set — is limited by `--collect-timeout` (default `2m`,
+the previous hard-coded budget). Raise either flag on a slow disk or a large
+peer list. If `--rpc-timeout` is longer than `--collect-timeout`, the exporter
+logs a warning: the cycle budget cancels the call first.
+
+### Logging (`--log.level`, `--log.format`)
+
+Logs use a production zap logger. `--log.level` is `debug`, `info` (the
+default), `warn`, or `error`. `--log.format` is `json` (the default) or
+`console`.
+
+### Shutdown
+
+`SIGINT` and `SIGTERM` cancel the background refresh loop, shut the metrics
+server down with a bounded wait (15s), and exit 0. A scrape that outlives that
+wait is closed so a container restart is not held open.
 
 ### RPC authentication
 
@@ -275,6 +308,40 @@ docker-compose up -d
 #
 docker-compose logs -f
 ```
+
+
+## Monerod compatibility
+
+The exporter is tested against the daemon RPC shape of **monerod 0.18.x**.
+Fixtures in `pkg/collector/testdata/monerod/v0.18.4.4/` follow the JSON
+**0.18.4.4** returns for every method the exporter calls: `get_info`,
+`get_last_block_header`, `get_block`, `get_transactions`,
+`get_transaction_pool`, `get_transaction_pool_stats`, `rpc_access_tracking`,
+`get_net_stats`, `get_connections` and `get_peer_list`.
+
+| monerod | fixture coverage |
+| --- | --- |
+| 0.18.0.0 – 0.18.3.4 | same methods; `busy_syncing` and the `wide_*` difficulty fields on `get_info` arrived during the series and are left at zero when a daemon omits them |
+| 0.18.4.0 – 0.18.4.6 | response shape of the committed fixtures, pinned to 0.18.4.4 |
+| 0.18.5.0 – 0.18.5.4 | same methods and the same fields the exporter reads |
+
+IP addresses use the [RFC 5737] documentation ranges. Peer ids, hostnames and
+hashes are placeholders. Transaction blobs and signatures are shortened; sizes,
+fees and input/output counts — the fields the exporter reads — are set in the
+fixtures.
+
+Regenerate the golden `/metrics` exposition and the `promtool` finding list
+after a metric change:
+
+```bash
+go test ./pkg/collector -update
+# or
+UPDATE_GOLDEN=1 go test ./pkg/collector
+```
+
+`promtool check metrics` checks that file in CI. The current finding list lives
+in `pkg/collector/testdata/promtool_baseline.txt`; CI fails when the list
+changes.
 
 
 ## Metrics
@@ -466,3 +533,4 @@ only tip this fork is after. ⭐ the repo if it earned its keep.
 [promql]: https://prometheus.io/docs/prometheus/latest/querying/basics/
 [releases page]: https://github.com/mathieumaf/monero-exporter/releases
 [docker-compose]: https://docs.docker.com/compose/
+[RFC 5737]: https://www.rfc-editor.org/rfc/rfc5737

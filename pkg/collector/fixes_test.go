@@ -82,7 +82,7 @@ func TestFailingCollectorKeepsLastSeries(t *testing.T) {
 	assertGauge(t, first, "monero_info_height", nil, fixtureHeight)
 
 	f.failRaw("/get_net_stats", errFake)
-	f.setJSON("get_info", map[string]any{
+	f.setJSON(rpcGetInfo, map[string]any{
 		jsonHeight:     50,
 		jsonTopHash:    fixtureTop,
 		jsonWhitePeers: 2,

@@ -1,0 +1,20 @@
+{
+  "data": [
+    {
+      "count": 3,
+      "credits": 0,
+      "rpc": "/get_transaction_pool",
+      "time": 250000000
+    },
+    {
+      "count": 12,
+      "credits": 0,
+      "rpc": "get_info",
+      "time": 1500000000
+    }
+  ],
+  "credits": 0,
+  "status": "OK",
+  "top_hash": "",
+  "untrusted": false
+}

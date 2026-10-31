@@ -2,14 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"os"
+	"os/signal"
 	"strconv"
+	"syscall"
 	"time"
 
+	"github.com/go-logr/zapr"
 	"github.com/oschwald/geoip2-golang"
 	"github.com/spf13/cobra"
+	"go.uber.org/zap"
 
 	mhttp "github.com/mathieumaf/go-monero/pkg/http"
 	"github.com/mathieumaf/go-monero/pkg/rpc"
@@ -28,6 +33,8 @@ const (
 	envRPCPassword = "MONERO_RPC_PASSWORD"
 )
 
+var errNonPositiveTimeout = errors.New("timeout must be positive")
+
 type command struct {
 	telemetryPath   string
 	bindAddr        string
@@ -37,6 +44,10 @@ type command struct {
 	rpcPassword     string
 	tlsSkipVerify   bool
 	refreshInterval time.Duration
+	rpcTimeout      time.Duration
+	collectTimeout  time.Duration
+	logLevel        string
+	logFormat       string
 
 	colOverall              bool
 	colLastBlock            bool
@@ -97,6 +108,7 @@ func (c *command) Cmd() *cobra.Command {
 			"scrape, instead of querying live per scrape; decouples "+
 			"scrape success from RPC latency (e.g. during sync)")
 
+	c.addRuntimeFlags(cmd)
 	c.addCollectorFlags(cmd)
 	cmd.Flags().BoolVar(&c.colTransactionPoolFull, "collector.transaction_pool.full",
 		false, "fetch the full transaction pool (get_transaction_pool) for "+
@@ -150,6 +162,22 @@ type collectorFlag struct {
 	enabled  *bool
 	interval *time.Duration
 	usage    string
+}
+
+func (c *command) addRuntimeFlags(cmd *cobra.Command) {
+	cmd.Flags().DurationVar(&c.rpcTimeout, "rpc-timeout",
+		defaultRPCTimeout, "timeout for each monerod RPC call")
+
+	cmd.Flags().DurationVar(&c.collectTimeout, "collect-timeout",
+		collector.DefaultCollectTimeout, "maximum duration of one collection cycle")
+	// Duration.String renders 2m as "2m0s"; show the flag the way users type it.
+	cmd.Flags().Lookup("collect-timeout").DefValue = "2m"
+
+	cmd.Flags().StringVar(&c.logLevel, "log.level",
+		defaultLogLevel, "log level (debug, info, warn, error)")
+
+	cmd.Flags().StringVar(&c.logFormat, "log.format",
+		logFormatJSON, "log format (json, console)")
 }
 
 func (c *command) addCollectorFlags(cmd *cobra.Command) {
@@ -242,9 +270,10 @@ func (c *command) newDaemonClient() (*daemon.Client, error) {
 	rpcUser, rpcPassword := c.resolveRPCCredentials()
 
 	httpClient, err := mhttp.NewClient(mhttp.ClientConfig{
-		Username:      rpcUser,
-		Password:      rpcPassword,
-		TLSSkipVerify: c.tlsSkipVerify,
+		Username:       rpcUser,
+		Password:       rpcPassword,
+		TLSSkipVerify:  c.tlsSkipVerify,
+		RequestTimeout: c.rpcTimeout,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("new http client: %w", err)
@@ -309,9 +338,63 @@ func (c *command) collectorFlagOptions() []collector.Option {
 	}
 }
 
-func (c *command) RunE(_ *cobra.Command, _ []string) error {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func (c *command) validate() error {
+	if c.rpcTimeout <= 0 {
+		return fmt.Errorf("rpc timeout %s: %w", c.rpcTimeout, errNonPositiveTimeout)
+	}
+
+	if c.collectTimeout <= 0 {
+		return fmt.Errorf("collect timeout %s: %w", c.collectTimeout, errNonPositiveTimeout)
+	}
+
+	return nil
+}
+
+func (c *command) warnTimeouts(logger *zap.Logger) {
+	if c.rpcTimeout <= c.collectTimeout {
+		return
+	}
+
+	logger.Warn(
+		"rpc timeout exceeds collect timeout; a single call can consume the whole cycle budget",
+		zap.Duration("rpc_timeout", c.rpcTimeout),
+		zap.Duration("collect_timeout", c.collectTimeout),
+	)
+}
+
+func commandContext(cmd *cobra.Command) context.Context {
+	if cmd == nil {
+		return context.Background()
+	}
+
+	if ctx := cmd.Context(); ctx != nil {
+		return ctx
+	}
+
+	return context.Background()
+}
+
+func (c *command) RunE(cmd *cobra.Command, _ []string) error {
+	if err := c.validate(); err != nil {
+		return err
+	}
+
+	logger, err := newLogger(c.logLevel, c.logFormat)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = logger.Sync() }()
+
+	c.warnTimeouts(logger)
+
+	ctx, stop := signal.NotifyContext(commandContext(cmd), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	return c.serve(ctx, logger)
+}
+
+func (c *command) serve(ctx context.Context, logger *zap.Logger) error {
+	log := zapr.NewLogger(logger)
 
 	daemonClient, err := c.newDaemonClient()
 	if err != nil {
@@ -326,6 +409,8 @@ func (c *command) RunE(_ *cobra.Command, _ []string) error {
 
 	collectorOpts = append(collectorOpts,
 		collector.WithRefreshInterval(c.refreshInterval),
+		collector.WithCollectTimeout(c.collectTimeout),
+		collector.WithLogger(log.WithName("collector")),
 	)
 	collectorOpts = append(collectorOpts, c.collectorFlagOptions()...)
 
@@ -336,14 +421,21 @@ func (c *command) RunE(_ *cobra.Command, _ []string) error {
 	prometheusExporter, err := exporter.New(
 		exporter.WithBindAddress(c.bindAddr),
 		exporter.WithTelemetryPath(c.telemetryPath),
+		exporter.WithLogger(log.WithName("exporter")),
 	)
 	if err != nil {
 		return fmt.Errorf("new exporter: %w", err)
 	}
-	defer prometheusExporter.Close()
+	defer func() {
+		if closeErr := prometheusExporter.Close(); closeErr != nil {
+			logger.Error("close exporter", zap.Error(closeErr))
+		}
+	}()
 
+	// A cancelled process context is a successful shutdown, including when
+	// Listen itself was interrupted by SIGINT/SIGTERM.
 	err = prometheusExporter.Run(ctx)
-	if err != nil {
+	if err != nil && ctx.Err() == nil {
 		return fmt.Errorf("prometheus exporter run: %w", err)
 	}
 

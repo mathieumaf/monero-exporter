@@ -206,7 +206,7 @@ func fixtureTxJSON() []byte {
 }
 
 func (f *fakeDaemon) setChainFixtures() {
-	f.setJSON("get_info", map[string]any{
+	f.setJSON(rpcGetInfo, map[string]any{
 		jsonHeight:                   fixtureHeight,
 		"target_height":              0,
 		jsonTopHash:                  fixtureTop,
@@ -254,7 +254,7 @@ func (f *fakeDaemon) setNetworkFixtures() {
 	})
 	f.setJSON("rpc_access_tracking", map[string]any{
 		"data": []any{
-			map[string]any{"rpc": "get_info", "count": 4, "time": 1_000_000_000},
+			map[string]any{"rpc": rpcGetInfo, "count": 4, "time": 1_000_000_000},
 		},
 	})
 	f.setRaw("/get_peer_list", map[string]any{

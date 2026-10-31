@@ -36,6 +36,14 @@ func NewTransactionPoolCollector(
 	}
 }
 
+// WithFullPool opts into get_transaction_pool so the per-transaction series
+// are collected. The default stays on get_transaction_pool_stats.
+func (c *TransactionPoolCollector) WithFullPool() *TransactionPoolCollector {
+	c.full = true
+
+	return c
+}
+
 func (c *TransactionPoolCollector) Name() string {
 	return CollectorTransactionPool
 }
@@ -173,7 +181,7 @@ func (c *TransactionPoolCollector) collectTransactionsOutputs() {
 }
 
 func (c *TransactionPoolCollector) collectTransactionsAgeDistribution() {
-	now := time.Now()
+	now := clockNow()
 
 	summary := NewSummary()
 	for _, txn := range c.pool.Transactions {

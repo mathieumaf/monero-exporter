@@ -16,10 +16,13 @@ import (
 	"github.com/mathieumaf/go-monero/pkg/rpc/daemon"
 )
 
-// collectTimeout bounds how long a single collection cycle may take, so a hung
-// RPC connection can never block a scrape (live mode) or freeze the background
-// refresh loop (cache mode) indefinitely.
-const collectTimeout = 2 * time.Minute
+// DefaultCollectTimeout bounds how long a single collection cycle may take, so
+// a hung RPC connection can never block a scrape (live mode) or freeze the
+// background refresh loop (cache mode) indefinitely.
+//
+// It is the historical hard-coded budget and the default of the CLI's
+// --collect-timeout flag. WithCollectTimeout overrides it per collector.
+const DefaultCollectTimeout = 2 * time.Minute
 
 // Collector names match the CustomCollector.Name values and the
 // --collector.<name> flags.
@@ -83,6 +86,10 @@ type Collector struct {
 	enabled   map[string]bool
 	intervals map[string]time.Duration
 
+	// collectTimeout bounds one collection cycle. Zero means
+	// DefaultCollectTimeout.
+	collectTimeout time.Duration
+
 	// mu guards cached, the last snapshot served in cache mode.
 	mu     sync.RWMutex
 	cached []prometheus.Metric
@@ -140,10 +147,20 @@ func WithRefreshInterval(v time.Duration) func(c *Collector) {
 	}
 }
 
-// WithLogger overrides the default development logger.
-func WithLogger(l logr.Logger) func(c *Collector) {
+// WithCollectTimeout overrides DefaultCollectTimeout for one collection cycle
+// (a live scrape, or one iteration of the background refresh loop). A
+// non-positive value keeps the default.
+func WithCollectTimeout(v time.Duration) func(c *Collector) {
 	return func(c *Collector) {
-		c.log = l
+		c.collectTimeout = v
+	}
+}
+
+// WithLogger overrides the collector logger. When unset, New builds a
+// production zap logger at info level.
+func WithLogger(log logr.Logger) func(c *Collector) {
+	return func(c *Collector) {
+		c.log = log
 	}
 }
 
@@ -173,7 +190,8 @@ func WithCollectorInterval(name string, interval time.Duration) Option {
 	}
 }
 
-// WithNow overrides the clock used for per-collector intervals.
+// WithNow overrides the clock used for per-collector intervals and the
+// last-success timestamp. Nil keeps clockNow, which tests can pin.
 func WithNow(now func() time.Time) Option {
 	return func(c *Collector) {
 		c.now = now
@@ -193,22 +211,32 @@ func defaultCountryMapper(_ net.IP) (string, error) {
 	return "unknown", nil
 }
 
-// New builds a Collector without registering it. Register is the usual
-// entry point; New exists so callers (and tests) can use a private registry.
+// New builds a collector for client. It does not register the collector and
+// does not start the background refresh loop; Register does both. Tests use
+// New with a private registry so a scrape does not touch the process-global
+// default gatherer.
 func New(client *daemon.Client, opts ...Option) (*Collector, error) {
-	defaultLogger, err := zap.NewDevelopment()
-	if err != nil {
-		return nil, fmt.Errorf("zap new development: %w", err)
-	}
-
 	c := &Collector{
-		client:        client,
-		countryMapper: defaultCountryMapper,
-		log:           zapr.NewLogger(defaultLogger),
+		client:         client,
+		countryMapper:  defaultCountryMapper,
+		collectTimeout: DefaultCollectTimeout,
 	}
 
 	for _, opt := range opts {
 		opt(c)
+	}
+
+	if c.collectTimeout <= 0 {
+		c.collectTimeout = DefaultCollectTimeout
+	}
+
+	if c.log.GetSink() == nil {
+		defaultLogger, err := zap.NewProduction()
+		if err != nil {
+			return nil, fmt.Errorf("zap new production: %w", err)
+		}
+
+		c.log = zapr.NewLogger(defaultLogger)
 	}
 
 	return c, nil
@@ -272,7 +300,7 @@ func (c *Collector) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), collectTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), c.collectTimeout)
 	defer cancel()
 
 	for _, m := range c.gather(ctx) {
@@ -301,7 +329,7 @@ func (c *Collector) refreshLoop(ctx context.Context) {
 }
 
 func (c *Collector) refreshOnce(ctx context.Context) {
-	cycleCtx, cancel := context.WithTimeout(ctx, collectTimeout)
+	cycleCtx, cancel := context.WithTimeout(ctx, c.collectTimeout)
 	defer cancel()
 
 	metrics := c.gather(cycleCtx)
@@ -326,8 +354,8 @@ func (c *Collector) gather(ctx context.Context) []prometheus.Metric {
 	c.collectMu.Lock()
 	defer c.collectMu.Unlock()
 
-	start := time.Now()
-	now := c.currentTime()
+	start := c.currentTime()
+	now := start
 	c.tipHash = ""
 	overallOK := false
 	metrics := make([]prometheus.Metric, 0, 64)
@@ -352,11 +380,11 @@ func (c *Collector) gather(ctx context.Context) []prometheus.Metric {
 		),
 		prometheus.MustNewConstMetric(
 			descCollectionDuration, prometheus.GaugeValue,
-			time.Since(start).Seconds(),
+			c.currentTime().Sub(start).Seconds(),
 		),
 	)
 
-	c.noteCycle(time.Since(start))
+	c.noteCycle(c.currentTime().Sub(start))
 
 	return metrics
 }
@@ -395,9 +423,9 @@ func (c *Collector) runCollector(
 		return c.lastGood[name], false
 	}
 
-	started := time.Now()
+	started := c.currentTime()
 	got, err := c.collectOne(ctx, name)
-	c.setDuration(name, time.Since(started).Seconds())
+	c.setDuration(name, c.currentTime().Sub(started).Seconds())
 	if err != nil {
 		c.log.Error(err, "collect", "collector", name)
 
@@ -486,7 +514,7 @@ func (c *Collector) currentTime() time.Time {
 		return c.now()
 	}
 
-	return time.Now()
+	return clockNow()
 }
 
 // collectOne runs a single collector. The channel is drained on another

@@ -32,7 +32,7 @@ func TestPeerlistDisabledKeepsCountsFromGetInfo(t *testing.T) {
 	t.Parallel()
 
 	f := newFixtureDaemon()
-	f.setJSON("get_info", map[string]any{
+	f.setJSON(rpcGetInfo, map[string]any{
 		jsonHeight:     fixtureHeight,
 		jsonTopHash:    fixtureTop,
 		jsonWhitePeers: 0,
@@ -57,7 +57,7 @@ func TestConnectionCountsComeFromGetInfoIncludingZeros(t *testing.T) {
 	t.Parallel()
 
 	f := newFixtureDaemon()
-	f.setJSON("get_info", map[string]any{
+	f.setJSON(rpcGetInfo, map[string]any{
 		jsonHeight:                   fixtureHeight,
 		jsonTopHash:                  fixtureTop,
 		"incoming_connections_count": 0,
@@ -164,8 +164,8 @@ func TestOverallDisabledSkipsGetInfo(t *testing.T) {
 		collector.WithCollectorEnabled(collector.CollectorOverall, false),
 	)
 	families := gather(t, c)
-	if f.jsonCallsFor("get_info") != 0 {
-		t.Fatalf("get_info calls = %d, want 0", f.jsonCallsFor("get_info"))
+	if f.jsonCallsFor(rpcGetInfo) != 0 {
+		t.Fatalf("get_info calls = %d, want 0", f.jsonCallsFor(rpcGetInfo))
 	}
 
 	if familyByName(families, "monero_info_height") != nil {

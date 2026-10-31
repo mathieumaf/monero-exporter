@@ -55,7 +55,7 @@ func (c *PeersCollector) fetchData(ctx context.Context) error {
 }
 
 func (c *PeersCollector) collectPeersLastSeen() {
-	now := time.Now()
+	now := clockNow()
 	summary := NewSummary()
 
 	for _, peer := range c.whitelist {

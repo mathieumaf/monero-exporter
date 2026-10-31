@@ -55,7 +55,7 @@ func TestGetInfoFailureClearsMoneroUpOnly(t *testing.T) {
 	t.Parallel()
 
 	f := newFixtureDaemon()
-	f.failJSON("get_info", errFake)
+	f.failJSON(rpcGetInfo, errFake)
 	families := gather(t, newCollector(f, collector.WithLogger(logr.Discard())))
 
 	assertGauge(t, families, "monero_up", nil, 0)

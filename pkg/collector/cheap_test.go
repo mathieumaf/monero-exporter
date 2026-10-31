@@ -39,7 +39,7 @@ func TestLastBlockRefetchesOnlyWhenTipChanges(t *testing.T) {
 		t.Fatalf("get_last_block_header calls = %d, want 0 when get_info has the tip", got)
 	}
 
-	f.setJSON("get_info", map[string]any{
+	f.setJSON(rpcGetInfo, map[string]any{
 		jsonHeight:  fixtureHeight,
 		jsonTopHash: fixtureTop + "ff",
 	})
@@ -95,9 +95,17 @@ func TestSlowCycleIsLogged(t *testing.T) {
 
 	sink := &captureSink{}
 	f := newFixtureDaemon()
+	// The suite pins clockNow, so advance this collector's clock to make the
+	// measured cycle longer than the refresh interval.
+	var ticks int
 	c := newCollector(f,
 		collector.WithLogger(logr.New(sink)),
-		collector.WithRefreshInterval(time.Nanosecond),
+		collector.WithRefreshInterval(time.Millisecond),
+		collector.WithNow(func() time.Time {
+			ticks++
+
+			return time.Unix(fixedNowUnix, 0).Add(time.Duration(ticks) * time.Second)
+		}),
 	)
 	c.Refresh(context.Background())
 

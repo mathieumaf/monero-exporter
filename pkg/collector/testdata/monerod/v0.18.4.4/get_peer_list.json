@@ -1,0 +1,35 @@
+{
+  "gray_list": [
+    {
+      "host": "203.0.113.30",
+      "id": 1003,
+      "ip": 3405803806,
+      "last_seen": 1768460400,
+      "port": 18080,
+      "pruning_seed": 0,
+      "rpc_port": 0
+    }
+  ],
+  "status": "OK",
+  "untrusted": false,
+  "white_list": [
+    {
+      "host": "192.0.2.10",
+      "id": 1001,
+      "ip": 3221225994,
+      "last_seen": 1768474800,
+      "port": 18080,
+      "pruning_seed": 0,
+      "rpc_port": 18081
+    },
+    {
+      "host": "198.51.100.20",
+      "id": 1002,
+      "ip": 3325256724,
+      "last_seen": 1768471200,
+      "port": 18080,
+      "pruning_seed": 0,
+      "rpc_port": 0
+    }
+  ]
+}

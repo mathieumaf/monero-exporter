@@ -51,7 +51,7 @@ func TestDescribeRegistersCheckedCollector(t *testing.T) {
 		labelState: labelTotal,
 	}, 0)
 	assertGauge(t, families, "monero_rpc_hits_total", map[string]string{
-		"method": "get_info",
+		"method": rpcGetInfo,
 	}, 4)
 	assertGauge(t, families, "monero_lastblock_height", nil, 12345)
 	assertGauge(t, families, "monero_transaction_pool_transactions", nil, 1)
