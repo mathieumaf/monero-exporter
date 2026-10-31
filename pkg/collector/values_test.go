@@ -298,9 +298,13 @@ func TestMetricsGolden(t *testing.T) {
 		t.Fatalf("digest auth changed /metrics\n%s", lineDiff(openBody, digestBody))
 	}
 
-	if digestSrv.authed.Load() == 0 || digestSrv.authed.Load() != digestSrv.challenge.Load() {
-		t.Fatalf("digest handshake authed=%d challenged=%d",
-			digestSrv.authed.Load(), digestSrv.challenge.Load())
+	// go-monero v0.3.0 reuses the digest nonce: the first call is challenged
+	// and every later call authenticates in one round trip.
+	authed := digestSrv.authed.Load()
+	challenged := digestSrv.challenge.Load()
+
+	if authed == 0 || challenged == 0 || challenged >= authed {
+		t.Fatalf("digest handshake authed=%d challenged=%d", authed, challenged)
 	}
 
 	text := string(openBody)
